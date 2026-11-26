@@ -1,0 +1,226 @@
+# LastDance Alerts — bước 1 và 2
+
+Web Next.js riêng tại `web/`; backend FastAPI cũ vẫn ở thư mục cha.
+
+Đã triển khai: đăng nhập email/password Firebase, đăng xuất, chọn nhóm và thiết bị,
+đọc realtime 100 cảnh báo mới nhất, trạng thái tải/rỗng/lỗi, Firestore Rules cách ly
+khách hàng. Bước 2 bổ sung API nhận alert, cấp/đổi/khóa device key và gửi thử có chủ ý.
+Firmware Wi-Fi và deploy Vercel là các bước tiếp theo. Không có dữ liệu cảnh báo mẫu
+trong giao diện.
+
+## Chạy local
+
+Yêu cầu Node.js 24. Trong thư mục này:
+
+```powershell
+npm ci
+# Nếu chưa có .env.local:
+Copy-Item .env.example .env.local
+# Điền đủ 4 giá trị Firebase từ Project settings > Your apps.
+npm run dev
+```
+
+Mở http://localhost:3000. Project hiện cấu hình là `ott-ids`, authDomain dùng
+`ott-ids.firebaseapp.com`. `.env.local` bị gitignore. NEXT_PUBLIC là cấu hình web
+công khai, không dùng để cấp quyền; không đặt service-account key trong các biến này.
+Thay đổi NEXT_PUBLIC cần khởi động lại dev server hoặc build/deploy lại.
+
+Trong Firebase Authentication, bật Email/Password. Kiểm tra Authorized domains
+có `localhost`; sau khi deploy thêm domain Vercel đang dùng. Dùng tài khoản đã tạo
+trên Firebase, không dùng tài khoản admin/client của FastAPI cũ.
+
+## Bật phân quyền thật
+
+Đăng nhập Firebase CLI bằng tài khoản sở hữu project rồi deploy rules:
+
+```powershell
+npm run firebase:login
+npm run firebase:rules -- --project ott-ids
+```
+
+Hoặc copy `firestore.rules` vào Firebase Console > Firestore > Rules > Publish.
+Không chọn rules cho phép đọc/ghi công khai.
+
+Quyền quản trị trên cloud chưa được cấp cho phiên làm việc này. Có thể tạo các
+document dưới đây bằng Firebase Console (thao tác quản trị đáng tin cậy), không cần
+gửi service-account key vào chat:
+
+| Document path | Fields |
+| --- | --- |
+| `organizations/lastdance` | `name` (string): `LastDance` |
+| `organizations/lastdance/members/eK22JZAClnQvG0mmh4sEe6lmy4L2` | `role` (string): `owner` |
+| `users/eK22JZAClnQvG0mmh4sEe6lmy4L2/memberships/lastdance` | `name` (string): `LastDance`, `role` (string): `owner` |
+| `organizations/lastdance/devices/IDS-0001` | `name` (string): `ESP32 đầu tiên`, `deviceId` (string): `IDS-0001` |
+
+Đăng ký document thiết bị chỉ giúp nó xuất hiện trên dashboard, chưa cấp credential
+để gửi dữ liệu. UID được dùng nguyên bản, không có dấu `\` cuối tin nhắn.
+Tài khoản chưa được gán sẽ thấy trạng thái chưa có quyền/thiết bị, không có quyền
+mặc định với các nhóm khác.
+
+Có thể thay thao tác tạo document bằng script quản trị sau khi đã thiết lập
+Application Default Credentials có quyền Firebase Auth và Firestore trên project:
+
+```powershell
+npm run bootstrap -- --uid eK22JZAClnQvG0mmh4sEe6lmy4L2 --org lastdance --name LastDance --device IDS-0001
+```
+
+Nếu dùng file service account, giữ file ngoài repo và đặt đường dẫn trong biến
+`GOOGLE_APPLICATION_CREDENTIALS` của môi trường local. `firebase login` phục vụ CLI,
+không tự cung cấp Application Default Credentials cho script Admin SDK. Script này
+cấp vai trò owner nên chỉ chạy từ máy quản trị; không được làm thành API public.
+
+## Cấu trúc và hợp đồng dữ liệu
+
+```text
+users/{uid}/memberships/{orgId}       # chỉ mục khám phá nhóm, admin ghi
+organizations/{orgId}/members/{uid} # nguồn quyết định quyền: owner/viewer
+organizations/{orgId}/devices/{deviceId}
+  alerts/{alertId}
+```
+
+Chỉ mục memberships không quyết định quyền đọc cảnh báo. Xóa document members sẽ
+thu hồi quyền truy cập cả khi chỉ mục memberships còn tồn tại. Trình duyệt chỉ đọc;
+owner/viewer ở bản đầu chưa có quyền chỉnh sửa bằng client SDK. API server của bước
+tiếp theo sẽ tự kiểm tra device credential trước khi ghi bằng Firebase Admin SDK.
+
+Alert giữ tên trường của server cũ: `class_id`, `src_ip`, `dst_ip`, `src_port`,
+`dst_port`, `protocol`, `action`, `model_version`. `received_at` bắt buộc là Firestore
+Timestamp do server ghi để query sắp xếp được; document thiếu field này không xuất
+hiện trong query. `event_id` dùng string; bước tiếp theo sẽ bổ sung `boot_id` và
+`sequence` cùng ID document ổn định để chống trùng khi ESP retry/reset.
+
+## Kiểm tra
+
+```powershell
+npm run build
+npm run typecheck
+# Firestore emulator cần Java 21+, lệnh java trên PATH cũng phải trỏ Java 21+.
+npm run test:rules
+```
+
+Test rules chỉ dùng project emulator `demo-lastdance`, không đụng dữ liệu `ott-ids`:
+đọc nhóm của mình, từ chối nhóm khác/anonymous, từ chối tự cấp quyền và ghi alert,
+khóa device credentials, query có giới hạn và thu hồi quyền.
+
+## API nhận cảnh báo — bước 2
+
+Đã có `POST /api/device/alerts` và script cấp key riêng. API lấy nhóm sở hữu từ
+registry trên server; không chấp nhận `orgId` hoặc thời gian nhận do ESP tự khai.
+Không cần đổi Firestore Rules ở bước này: browser tiếp tục chỉ đọc và không được
+đọc collection `deviceCredentials`. API dùng quyền Firebase Admin và tự xác thực.
+
+### Cấp key cho thiết bị đã bootstrap
+
+Trong `web`, dùng credential quản trị đang cấu hình qua `GOOGLE_APPLICATION_CREDENTIALS`:
+
+```powershell
+npm run device:key -- --org lastdance --device IDS-0001
+```
+
+Lệnh lưu hash SHA-256 vào `deviceCredentials/IDS-0001` và lưu secret gốc trong file
+JSON mới ở `web/.device-secrets/`. Terminal chỉ in đường dẫn; thư mục này đã được
+gitignore. Mở file trên máy để lấy `deviceId`, `deviceKey` cho firmware. Không đưa
+file này lên Git/Vercel hoặc vào chat. Device ID là duy nhất toàn hệ thống.
+
+Chạy lại bình thường không thay key cũ. Các thao tác quản trị có chủ ý:
+
+```powershell
+# Thay key cũ, đồng thời bật lại thiết bị; cần cập nhật key trên ESP32.
+npm run device:key -- --org lastdance --device IDS-0001 --rotate
+# Chặn ngay cả những lần gửi lại alert cũ, không xóa lịch sử.
+npm run device:key -- --org lastdance --device IDS-0001 --disable
+```
+
+### Contract ESP32
+
+```http
+POST /api/device/alerts
+Content-Type: application/json
+X-Device-ID: IDS-0001
+X-Device-Key: <deviceKey từ file được cấp>
+```
+
+```json
+{
+  "boot_id": "6cf4eb74-5f53-489b-8618-1a80bb4a9ef7",
+  "event_id": "42",
+  "timestamp_ms": 123456,
+  "model_version": 16777217,
+  "class_id": 1,
+  "ingress_port": 2,
+  "src_ip": "192.168.50.11",
+  "dst_ip": "192.168.50.12",
+  "src_port": 41000,
+  "dst_port": 40000,
+  "protocol": 17,
+  "action": "monitor",
+  "tree_error": 0,
+  "tree_steps": 9,
+  "latency_cycles": 9
+}
+```
+
+`boot_id` gồm 8–64 chữ/số/dấu gạch ngang/gạch dưới. Đổi nó khi bắt đầu một phiên
+sequence mới, gồm cả lúc FPGA reset sequence dù ESP32 vẫn chạy. `event_id` nên là
+chuỗi số nguyên uint64; API cũng nhận số JS an toàn nhưng từ chối số bị mất độ chính
+xác. Giữ nguyên cả boot ID, event ID và nội dung trong outbox cho mọi lần retry.
+Gửi lại bản ghi cũ sau reboot vẫn dùng identity gốc, không gán boot ID mới.
+
+Payload tối đa 16 KiB, IPv4 hợp lệ, các trường số theo phạm vi schema. Protocol khác
+TCP/UDP được chuẩn hóa port về 0. `received_at` là Firestore server Timestamp.
+API không ghi heartbeat mỗi lần nhận; một alert mới dùng một document write cùng
+các document reads phục vụ xác thực/chống trùng. Chưa có rate limit/quota per-device
+hoặc chính sách xóa lịch sử, cần bổ sung trước khi mở cho lưu lượng lớn.
+
+| HTTP | Ý nghĩa | Hành vi ESP32 |
+| --- | --- | --- |
+| 200, `accepted:true`, `duplicate:false` | Đã lưu | Xóa bản ghi khỏi outbox |
+| 200, `accepted:true`, `duplicate:true` | Đã nhận trước đó | Xóa bản ghi khỏi outbox |
+| 401 | ID/key sai | Giữ bản ghi, kiểm tra provisioning |
+| 403 | Thiết bị bị tắt hoặc registry thiếu | Giữ bản ghi, báo lỗi quản trị |
+| 409 | Cùng identity nhưng nội dung khác | Giữ/cách ly bản ghi, sửa lỗi sequence |
+| 400/413/415/422 | JSON/payload sai | Giữ/cách ly bản ghi, sửa format |
+| 503 hoặc mất mạng/timeout | Chưa xác nhận lưu thành công | Retry cùng identity, backoff |
+
+Các requests đồng thời được xử lý bằng Firestore transaction; retry không đổi
+`received_at` của bản ghi đầu tiên. Đây không phải endpoint tương thích nguyên trạng
+với bridge cũ: bridge/firmware hiện chưa gửi `boot_id`. Không đổi URL bridge sang API
+mới trước khi bổ sung field này.
+
+### Gửi thử có chủ ý
+
+Khởi động `npm run dev`, đăng nhập dashboard rồi chạy ở terminal khác:
+
+```powershell
+npm run send:test-alert -- --credential ".device-secrets/<file-vua-cap>.json" --repeat
+```
+
+Lệnh tạo **một cảnh báo tổng hợp** vào Firestore của thiết bị để bạn kiểm tra dashboard.
+Hai response lần lượt phải có `duplicate:false` và `duplicate:true`; chỉ một alert
+xuất hiện. Mỗi lần chạy lệnh tạo identity mới. Không có test alert được tự gửi lên
+cloud trong quá trình kiểm thử tự động. Thêm `--server https://<domain>` khi đã deploy.
+
+```powershell
+# Kiểm thử API với database emulator, không dùng key hoặc dữ liệu thật.
+npm run test:ingestion
+```
+
+### Credential khi deploy Vercel
+
+Chọn Root Directory `web`. Giữ nguyên 4 biến `NEXT_PUBLIC_FIREBASE_*` của web. Thêm
+server-only `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
+từ service account (project phải khớp). Private key nhận chuỗi có newline thật hoặc
+ký tự `\n`; không thêm `NEXT_PUBLIC_`. Không dùng đường dẫn ổ D: trong
+`GOOGLE_APPLICATION_CREDENTIALS` trên Vercel. Không upload JSON service account vào
+source. API khởi tạo Admin SDK khi có request, không cần credential lúc build.
+
+## Sau bước này
+
+1. Hoàn tất cấu hình Firebase và tạo membership/device thật.
+2. Kiểm tra đăng nhập với tài khoản của bạn.
+3. Cấp device credential và kiểm tra API nhận cảnh báo đã triển khai ở bước 2.
+4. Deploy Vercel (Root Directory: `web`), khai báo đủ NEXT_PUBLIC trước khi build.
+5. Thêm Wi-Fi, TLS và outbox flash cho ESP32, kiểm thử gửi alert thật end-to-end.
+
+Không cần persistent disk hay WebSocket server riêng cho web mới. Cảnh báo lưu ở
+Firestore và đồng bộ trực tiếp bằng listener; mỗi dashboard mở sẽ tiêu thụ lượt đọc.
