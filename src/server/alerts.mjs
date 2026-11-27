@@ -57,8 +57,13 @@ export async function saveAlert(db, deviceId, key, alert) {
     const device = db.doc(`organizations/${credential.orgId}/devices/${deviceId}`);
     const organization = db.doc(`organizations/${credential.orgId}`);
     const event = device.collection('alerts').doc(alertId);
-    const [deviceSnapshot, orgSnapshot, eventSnapshot] = await transaction.getAll(device, organization, event);
+    const receipt = device.collection('alertReceipts').doc(alertId);
+    const [deviceSnapshot, orgSnapshot, eventSnapshot, receiptSnapshot] = await transaction.getAll(device, organization, event, receipt);
     if (!deviceSnapshot.exists || !orgSnapshot.exists) throw new ApiError(403, 'device_unregistered', 'Device is not registered');
+    if (receiptSnapshot.exists) {
+      if (receiptSnapshot.data().payload_hash !== payloadHash) throw new ApiError(409, 'event_conflict', 'Event ID already has different content');
+      return { accepted: true, duplicate: true, id: alertId };
+    }
     if (eventSnapshot.exists) {
       if (eventSnapshot.data().payload_hash !== payloadHash) throw new ApiError(409, 'event_conflict', 'Event ID already has different content');
       return { accepted: true, duplicate: true, id: alertId };
@@ -68,7 +73,7 @@ export async function saveAlert(db, deviceId, key, alert) {
   });
 }
 
-async function readBody(request) {
+export async function readBody(request) {
   const length = request.headers.get('content-length');
   if (length && (!/^\d+$/.test(length) || Number(length) > MAX_BODY_BYTES)) throw new ApiError(413, 'payload_too_large', 'Maximum payload is 16 KiB');
   if (!request.body) throw new ApiError(400, 'invalid_json', 'JSON body required');

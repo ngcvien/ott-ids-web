@@ -1,4 +1,14 @@
-# LastDance Alerts — bước 1 và 2
+# OTT-IDS Alerts
+
+## Hiển thị tấn công và xóa cảnh báo
+
+- `class_id: 1` hiển thị **Tấn công · Class 1** màu đỏ, tô nhẹ hàng dữ liệu và được đếm trong ô thống kê tấn công.
+- Cảnh báo Class 1 mới của thiết bị đang chọn tạo một hiệu ứng đỏ toàn màn hình trong 1,8 giây. Giãn cách tối thiểu 8 giây khi tấn công liên tục; lịch sử khi mở trang, đổi thiết bị hoặc tải bù sau khi xóa không kích hoạt hiệu ứng. Với `prefers-reduced-motion`, chỉ hiện viền đỏ tĩnh ngắn.
+- Owner có nút **Xóa cảnh báo (N)**, cần xác nhận. Nút chỉ xóa các dòng đang hiển thị theo bộ lọc, tối đa 100 dòng của thiết bị đang chọn. Cảnh báo mới trong lúc xóa được giữ lại; lịch sử cũ hơn có thể tải bù vào danh sách.
+- `DELETE /api/alerts` nhận `{orgId, deviceId, ids}` và Firebase ID token trong `Authorization: Bearer …`. Server kiểm tra token (cả thu hồi phiên), role owner từ membership chính thức và xóa trong transaction. Viewer không có quyền xóa; client SDK vẫn không được ghi trực tiếp Firestore.
+- Mỗi cảnh báo đã xóa giữ một receipt riêng tại `organizations/{orgId}/devices/{deviceId}/alertReceipts/{alertId}` gồm hash và thời gian xóa. Receipt chỉ dùng trên server để ESP gửi lại cùng sự kiện không tạo lại cảnh báo; không giữ IP hoặc dữ liệu gói tin đã xóa. API nhận cảnh báo đọc thêm receipt để kiểm tra chống trùng.
+
+Kiểm tra thay đổi bằng `npm run test:attention`, `npm run test:alerts` (Java 21+, chỉ emulator) và `npm run build`.
 
 Web Next.js riêng tại `web/`; backend FastAPI cũ vẫn ở thư mục cha.
 

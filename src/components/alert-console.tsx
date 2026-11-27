@@ -2,8 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
-import { collection, limit, onSnapshot, orderBy, query, type Timestamp } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, orderBy, query, type Timestamp } from 'firebase/firestore';
 import { firebaseClient } from '@/lib/firebase';
+import { createAttackDetector } from '@/lib/attack-detector.mjs';
 
 type Choice = { id: string; name: string };
 type Alert = {
@@ -117,11 +118,11 @@ function Workspace({ user }: { user: User }) {
   return <main className="workspace" id="overview">
     <div className="page-heading"><div><p className="eyebrow">SECURITY OPERATIONS</p><h1>Trung tâm cảnh báo<span className="heading-dot">.</span></h1><p className="muted">Theo dõi và phân tích các sự kiện an ninh từ thiết bị của bạn.</p></div><label className="picker">Không gian giám sát<select value={orgId} onChange={event => setSelected(event.target.value)} disabled={!groups.length}>{groups.length ? groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>) : <option value="">Chưa có nhóm</option>}</select></label></div>
     {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p role="status">Đang tải quyền truy cập…</p> : !orgId ?
-      <div className="empty standalone"><Icon name="devices"/><h2>Chưa có thiết bị được cấp quyền</h2><p>Nhờ quản trị viên thêm tài khoản của bạn vào nhóm thiết bị.</p></div> : <DeviceWorkspace key={orgId} orgId={orgId} />}
+      <div className="empty standalone"><Icon name="devices"/><h2>Chưa có thiết bị được cấp quyền</h2><p>Nhờ quản trị viên thêm tài khoản của bạn vào nhóm thiết bị.</p></div> : <DeviceWorkspace key={orgId} orgId={orgId} user={user} />}
   </main>;
 }
 
-function DeviceWorkspace({ orgId }: { orgId: string }) {
+function DeviceWorkspace({ orgId, user }: { orgId: string; user: User }) {
   const [devices, setDevices] = useState<Choice[]>([]);
   const [selected, setSelected] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -133,29 +134,70 @@ function DeviceWorkspace({ orgId }: { orgId: string }) {
   const deviceId = devices.some(device => device.id === selected) ? selected : devices[0]?.id || '';
   return <>
     <div className="toolbar"><div className="toolbar-title"><span className="toolbar-icon"><Icon name="devices"/></span><div><strong>Nguồn cảnh báo</strong><span>{devices.length} thiết bị được cấp quyền trong nhóm</span></div></div><label className="picker device-picker"><span className="sr-only">Thiết bị</span><select value={deviceId} onChange={event => setSelected(event.target.value)} disabled={!devices.length}>{devices.length ? devices.map(device => <option key={device.id} value={device.id}>{device.name} · {device.id}</option>) : <option value="">Chưa có thiết bị</option>}</select></label></div>
-    {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p role="status">Đang tải thiết bị…</p> : deviceId ? <Alerts key={deviceId} orgId={orgId} deviceId={deviceId} /> : <div className="empty"><h2>Nhóm chưa có thiết bị</h2><p>Thiết bị sẽ xuất hiện sau khi quản trị viên đăng ký.</p></div>}
+    {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p role="status">Đang tải thiết bị…</p> : deviceId ? <Alerts key={deviceId} orgId={orgId} deviceId={deviceId} user={user} /> : <div className="empty"><h2>Nhóm chưa có thiết bị</h2><p>Thiết bị sẽ xuất hiện sau khi quản trị viên đăng ký.</p></div>}
   </>;
 }
 
-function Alerts({ orgId, deviceId }: { orgId: string; deviceId: string }) {
+function Alerts({ orgId, deviceId, user }: { orgId: string; deviceId: string; user: User }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [cached, setCached] = useState(false);
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('all');
-  useEffect(() => onSnapshot(query(collection(firebaseClient().db, 'organizations', orgId, 'devices', deviceId, 'alerts'), orderBy('received_at', 'desc'), limit(100)), { includeMetadataChanges: true }, snapshot => {
-    setAlerts(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Alert)));
-    setLoaded(true); setCached(snapshot.metadata.fromCache); setError('');
-  }, error => { setAlerts([]); setError(dataError(error.code)); setLoaded(true); }), [orgId, deviceId]);
-  const drops = alerts.filter(alert => alert.action === 'drop').length;
+  const [canClear, setCanClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearMessage, setClearMessage] = useState('');
+  const [clearError, setClearError] = useState('');
+  const [flash, setFlash] = useState(false);
+  const [attackMessage, setAttackMessage] = useState('');
+  useEffect(() => onSnapshot(doc(firebaseClient().db, 'organizations', orgId, 'members', user.uid), snapshot => {
+    setCanClear(snapshot.data()?.role === 'owner');
+  }, () => setCanClear(false)), [orgId, user.uid]);
+  useEffect(() => {
+    const detectAttacks = createAttackDetector();
+    let lastFlashAt = 0;
+    let flashTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = onSnapshot(query(collection(firebaseClient().db, 'organizations', orgId, 'devices', deviceId, 'alerts'), orderBy('received_at', 'desc'), limit(100)), { includeMetadataChanges: true }, snapshot => {
+      const incoming = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Alert));
+      if (detectAttacks(incoming, snapshot.metadata.fromCache) > 0 && Date.now() - lastFlashAt >= 8000) {
+        lastFlashAt = Date.now(); setFlash(true);
+        setAttackMessage(`Vừa nhận cảnh báo tấn công Class 1 từ ${deviceId}.`);
+        flashTimer = setTimeout(() => setFlash(false), 1800);
+      }
+      setAlerts(incoming); setLoaded(true); setCached(snapshot.metadata.fromCache); setError('');
+    }, error => { setAlerts([]); setError(dataError(error.code)); setLoaded(true); });
+    return () => { unsubscribe(); clearTimeout(flashTimer); };
+  }, [orgId, deviceId]);
+  const attacks = alerts.filter(alert => alert.class_id === 1).length;
   const term = search.trim().toLowerCase();
   const visibleAlerts = alerts.filter(alert => (actionFilter === 'all' || alert.action === actionFilter) &&
-    (!term || [alert.src_ip, alert.dst_ip, alert.src_port, alert.dst_port, alert.class_id, alert.event_id, alert.protocol === 6 ? 'tcp' : alert.protocol === 17 ? 'udp' : alert.protocol].some(value => String(value ?? '').toLowerCase().includes(term))));
+    (!term || [alert.src_ip, alert.dst_ip, alert.src_port, alert.dst_port, alert.class_id, alert.event_id, alert.class_id === 1 ? 'tấn công' : '', alert.protocol === 6 ? 'tcp' : alert.protocol === 17 ? 'udp' : alert.protocol].some(value => String(value ?? '').toLowerCase().includes(term))));
+  async function clearVisibleAlerts() {
+    const ids = visibleAlerts.map(alert => alert.id);
+    if (!canClear || clearing || !ids.length) return;
+    if (!window.confirm(`Xóa vĩnh viễn ${ids.length} cảnh báo đang hiển thị của ${deviceId}?\n\nCảnh báo mới và dữ liệu ngoài danh sách này được giữ lại. Không thay đổi FPGA hoặc chế độ chặn.`)) return;
+    setClearing(true); setClearError(''); setClearMessage('');
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/alerts', { method: 'DELETE', headers: {
+        Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
+      }, body: JSON.stringify({ orgId, deviceId, ids }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(response.status === 403 ? 'Chỉ owner của nhóm được xóa cảnh báo.' : response.status === 401 ? 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.' : 'Không xóa được cảnh báo. Vui lòng thử lại.');
+      setClearMessage(`Đã xóa ${result.cleared} cảnh báo. Lịch sử cũ hơn có thể được tải bù vào danh sách.`);
+    } catch (error) {
+      setClearError(error instanceof Error ? error.message : 'Không xóa được cảnh báo.');
+    } finally { setClearing(false); }
+  }
   return <>
-    <section className="stats" aria-label="Thống kê 100 cảnh báo mới nhất"><article><div className="stat-heading"><span>Cảnh báo đã tải</span><Icon name="activity"/></div><strong>{loaded && !error ? alerts.length.toLocaleString('vi-VN') : '—'}</strong><small>Trong 100 sự kiện gần nhất</small></article><article><div className="stat-heading"><span>Hành động drop</span><Icon name="shield"/></div><strong className="danger">{loaded && !error ? drops.toLocaleString('vi-VN') : '—'}</strong><small>Thiết bị báo hành động chặn</small></article><article><div className="stat-heading"><span>Chế độ monitor</span><Icon name="eye"/></div><strong>{loaded && !error ? alerts.filter(alert => alert.action === 'monitor').length.toLocaleString('vi-VN') : '—'}</strong><small>Ghi nhận và theo dõi sự kiện</small></article><article className="connection-card"><div className="stat-heading"><span>Đồng bộ dữ liệu</span><Icon name="flow"/></div><strong className={`connection ${error ? 'danger' : ''}`}>{error ? 'Có lỗi kết nối' : !loaded ? 'Đang kết nối' : cached ? 'Chờ đồng bộ' : 'Đang cập nhật'}</strong><small>Trạng thái kết nối dashboard</small></article></section>
-    <section className="alerts-panel" id="alerts"><div className="panel-heading"><div><p className="eyebrow">EVENT STREAM</p><h2>Nhật ký cảnh báo</h2></div><span className="device-chip"><Icon name="devices"/>{deviceId}</span></div><div className="table-tools"><label className="search-field"><Icon name="search"/><span className="sr-only">Tìm trong 100 cảnh báo đã tải</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Tìm IP, cổng, loại cảnh báo…"/></label><label className="action-picker"><span className="sr-only">Lọc hành động</span><select value={actionFilter} onChange={event => setActionFilter(event.target.value)}><option value="all">Tất cả hành động</option><option value="monitor">Monitor</option><option value="drop">Drop</option></select></label></div>
-      {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p className="empty" role="status">Đang tải cảnh báo…</p> : !alerts.length ? <div className="empty"><span className="empty-icon"><Icon name="shield"/></span><h3>Chưa ghi nhận cảnh báo</h3><p>Các sự kiện mới từ thiết bị sẽ tự động hiển thị tại đây.</p><small>Đang theo dõi nguồn {deviceId}</small></div> : !visibleAlerts.length ? <div className="empty"><Icon name="search"/><h3>Không tìm thấy sự kiện phù hợp</h3><p>Thử thay đổi từ khóa hoặc bộ lọc hành động.</p><button className="secondary" onClick={() => { setSearch(''); setActionFilter('all'); }}>Xóa bộ lọc</button></div> : <div className="table-scroll"><table><thead><tr><th>Thời gian nhận</th><th>Phân loại</th><th>Địa chỉ nguồn</th><th>Địa chỉ đích</th><th>Giao thức</th><th>Hành động</th></tr></thead><tbody>{visibleAlerts.map(alert => <tr key={alert.id}><td className="time-cell">{alert.received_at?.toDate ? <><strong>{alert.received_at.toDate().toLocaleTimeString('vi-VN')}</strong><span>{alert.received_at.toDate().toLocaleDateString('vi-VN')}</span></> : '—'}</td><td><span className="class-tag">Class {alert.class_id ?? '—'}</span></td><td className="mono">{alert.src_ip ?? '—'}<span className="port">:{alert.src_port ?? 0}</span></td><td className="mono">{alert.dst_ip ?? '—'}<span className="port">:{alert.dst_port ?? 0}</span></td><td><span className="protocol-tag">{alert.protocol === 6 ? 'TCP' : alert.protocol === 17 ? 'UDP' : alert.protocol ?? '—'}</span></td><td><span className={alert.action === 'drop' ? 'badge drop' : 'badge'}><span/>{alert.action ?? '—'}</span></td></tr>)}</tbody></table></div>}
+    {flash ? <div className="attack-screen-flash" aria-hidden="true"/> : null}
+    {attackMessage ? <p className="new-attack-message" role="status">{attackMessage}</p> : null}
+    <section className="stats" aria-label="Thống kê 100 cảnh báo mới nhất"><article><div className="stat-heading"><span>Cảnh báo đã tải</span><Icon name="activity"/></div><strong>{loaded && !error ? alerts.length.toLocaleString('vi-VN') : '—'}</strong><small>Trong 100 sự kiện gần nhất</small></article><article><div className="stat-heading"><span>Tấn công · Class 1</span><Icon name="shield"/></div><strong className="danger">{loaded && !error ? attacks.toLocaleString('vi-VN') : '—'}</strong><small>Phân loại tấn công từ thiết bị</small></article><article><div className="stat-heading"><span>Chế độ monitor</span><Icon name="eye"/></div><strong>{loaded && !error ? alerts.filter(alert => alert.action === 'monitor').length.toLocaleString('vi-VN') : '—'}</strong><small>Ghi nhận và theo dõi sự kiện</small></article><article className="connection-card"><div className="stat-heading"><span>Đồng bộ dữ liệu</span><Icon name="flow"/></div><strong className={`connection ${error ? 'danger' : ''}`}>{error ? 'Có lỗi kết nối' : !loaded ? 'Đang kết nối' : cached ? 'Chờ đồng bộ' : 'Đang cập nhật'}</strong><small>Trạng thái kết nối dashboard</small></article></section>
+    <section className="alerts-panel" id="alerts"><div className="panel-heading"><div><p className="eyebrow">EVENT STREAM</p><h2>Nhật ký cảnh báo</h2></div><span className="device-chip"><Icon name="devices"/>{deviceId}</span></div><div className="table-tools"><label className="search-field"><Icon name="search"/><span className="sr-only">Tìm trong 100 cảnh báo đã tải</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Tìm IP, cổng, loại cảnh báo…"/></label><label className="action-picker"><span className="sr-only">Lọc hành động</span><select value={actionFilter} onChange={event => setActionFilter(event.target.value)}><option value="all">Tất cả hành động</option><option value="monitor">Monitor</option><option value="drop">Drop</option></select></label>{canClear ? <button type="button" className="clear-alerts-button" disabled={clearing || cached || !loaded || !visibleAlerts.length} onClick={clearVisibleAlerts}>{clearing ? 'Đang xóa…' : `Xóa cảnh báo (${visibleAlerts.length})`}</button> : null}</div>
+      {clearMessage ? <p className="clear-feedback" role="status">{clearMessage}</p> : null}
+      {clearError ? <p className="clear-feedback error" role="alert">{clearError}</p> : null}
+      {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p className="empty" role="status">Đang tải cảnh báo…</p> : !alerts.length ? <div className="empty"><span className="empty-icon"><Icon name="shield"/></span><h3>Chưa ghi nhận cảnh báo</h3><p>Các sự kiện mới từ thiết bị sẽ tự động hiển thị tại đây.</p><small>Đang theo dõi nguồn {deviceId}</small></div> : !visibleAlerts.length ? <div className="empty"><Icon name="search"/><h3>Không tìm thấy sự kiện phù hợp</h3><p>Thử thay đổi từ khóa hoặc bộ lọc hành động.</p><button className="secondary" onClick={() => { setSearch(''); setActionFilter('all'); }}>Xóa bộ lọc</button></div> : <div className="table-scroll"><table><thead><tr><th>Thời gian nhận</th><th>Phân loại</th><th>Địa chỉ nguồn</th><th>Địa chỉ đích</th><th>Giao thức</th><th>Hành động</th></tr></thead><tbody>{visibleAlerts.map(alert => <tr key={alert.id} className={alert.class_id === 1 ? 'attack-row' : undefined}><td className="time-cell">{alert.received_at?.toDate ? <><strong>{alert.received_at.toDate().toLocaleTimeString('vi-VN')}</strong><span>{alert.received_at.toDate().toLocaleDateString('vi-VN')}</span></> : '—'}</td><td><span className={alert.class_id === 1 ? 'class-tag attack-tag' : 'class-tag'}>{alert.class_id === 1 ? 'Tấn công · Class 1' : `Class ${alert.class_id ?? '—'}`}</span></td><td className="mono">{alert.src_ip ?? '—'}<span className="port">:{alert.src_port ?? 0}</span></td><td className="mono">{alert.dst_ip ?? '—'}<span className="port">:{alert.dst_port ?? 0}</span></td><td><span className="protocol-tag">{alert.protocol === 6 ? 'TCP' : alert.protocol === 17 ? 'UDP' : alert.protocol ?? '—'}</span></td><td><span className={alert.action === 'drop' ? 'badge drop' : 'badge'}><span/>{alert.action ?? '—'}</span></td></tr>)}</tbody></table></div>}
       <div className="table-footer"><span role="status">Hiển thị {visibleAlerts.length} / {alerts.length} cảnh báo đã tải</span><span>Giới hạn 100 sự kiện mới nhất</span></div>
     </section>
   </>;

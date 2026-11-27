@@ -1,8 +1,9 @@
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 // Import only from server routes / trusted local scripts. Never from a Client Component.
-export function adminDatabase() {
+function adminApplication() {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   if (!projectId) throw new Error('Missing Firebase project ID');
   if (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && projectId !== process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
@@ -22,5 +23,8 @@ export function adminDatabase() {
         : applicationDefault() };
     app = initializeApp(options, name);
   }
-  return getFirestore(app);
+  return app;
 }
+
+export function adminDatabase() { return getFirestore(adminApplication()); }
+export function adminAuth() { return getAuth(adminApplication()); }

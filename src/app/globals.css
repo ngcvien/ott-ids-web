@@ -19,4 +19,10 @@ select{appearance:none;padding-right:36px;background-image:url("data:image/svg+x
 @media(max-width:780px){.signed-in>.notice{grid-column:1}.toolbar{flex-direction:row;align-items:center}.device-picker{width:auto}.device-picker select{max-width:260px;min-width:0}.page-heading>.picker{max-width:100%}}
 @media(max-width:560px){.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stats article{padding:16px 13px}.stat-heading{font-size:11px;gap:5px}.stats strong{font-size:29px}.stats .connection{font-size:14px;min-height:38px}.stats small{font-size:10px}.toolbar{flex-direction:column;align-items:stretch}.device-picker,.device-picker select{width:100%;max-width:none}.table-footer{font-size:11px}}
 @media(max-width:360px){.stats{grid-template-columns:1fr}}
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
+.class-tag.attack-tag{background:#49212b;border-color:#a34b5a;color:#ffc0c6;font-weight:600}
+tr.attack-row{background:#ff394a08}tr.attack-row:hover{background:#ff394a13}tr.attack-row td:first-child{box-shadow:inset 3px 0 #f36578}
+.attack-screen-flash{position:fixed;inset:0;z-index:9999;pointer-events:none;background:rgba(213,26,54,.15);box-shadow:inset 0 0 100px 18px rgba(255,38,65,.48);opacity:0;animation:attack-attention 1.8s ease-out both}
+@keyframes attack-attention{0%{opacity:0}20%{opacity:1}100%{opacity:0}}
+.new-attack-message{border:1px solid #924554;border-radius:8px;background:#3e202b;color:#ffc1ca;padding:12px 16px;font-size:13px;margin:0 0 20px}
+.clear-alerts-button{background:#39202a;color:#ffb4bf;border-color:#824253;font-size:12px;padding:10px 14px;white-space:nowrap}.clear-alerts-button:hover:not(:disabled){background:#542735;border-color:#b36475}.clear-feedback{margin:0 24px 15px;font-size:12px;color:#9bdac0}.clear-feedback.error{color:#ffb3be}.table-tools{flex-wrap:wrap}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}.attack-screen-flash{opacity:.5;background:transparent;box-shadow:inset 0 0 0 5px #f36578}}
