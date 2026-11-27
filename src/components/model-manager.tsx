@@ -6,12 +6,13 @@ import { collection, doc, limit, onSnapshot, orderBy, query, type Timestamp } fr
 import { firebaseClient } from '@/lib/firebase';
 import type { DeviceSummary } from './device-fleet';
 
-type ModelEntry = { id: string; name: string; model: { abi: number; version: number; node_count: number; crc32: string; sha256: string } };
+type ModelEntry = { id: string; name: string; model: { abi: number; version: number; node_count: number; crc32: string; sha256: string }; artifact?: { artifact_size: number; artifact_sha256: string } };
 type CommandEntry = { command_id: string; name: string; version: number; status: string; error?: string; updated_at?: Timestamp };
 const labels: Record<string,string> = { queued: 'Chờ ESP nhận lệnh', downloading: 'Đang tải / kiểm tra', loading: 'Đang nạp / chờ xác nhận', succeeded: 'Nạp thành công', failed: 'Nạp thất bại', cancelled: 'Đã hủy' };
 const errorLabels: Record<string,string> = {
   owner_required: 'Chỉ owner được tải model và phát lệnh.', version_conflict: 'Version này đã có model khác. Hãy dùng version mới.',
   device_busy: 'Thiết bị đang có một lệnh chưa hoàn tất.', cannot_cancel: 'Lệnh đã được phép nạp hoặc đã kết thúc, không thể hủy.',
+  invalid_gwm: 'File GWM không đúng định dạng Gateway24 v1, ABI 1 hoặc checksum không khớp.',
   invalid_model: 'Model không đúng định dạng ABI 1 hoặc checksum không khớp.', unauthorized: 'Phiên đăng nhập hết hạn. Hãy đăng nhập lại.',
   storage_failed: 'ESP không lưu được model vào flash.', fpga_not_ready: 'Lõi xử lý chưa sẵn sàng nhận model.',
   fpga_load_failed: 'Lõi xử lý không xác nhận model hợp lệ.', commit_failed: 'Đã nạp nhưng không lưu được trạng thái kích hoạt trên ESP.',
@@ -44,13 +45,23 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
   const [owner, setOwner] = useState(false);
   const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [memVersion, setMemVersion] = useState('');
+  const [fileVersion, setFileVersion] = useState<number | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const requestIdentity = useRef<{ device: string; model: string; id: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setFileVersion(null);
+    if (file && file.size >= 80 && file.size <= 1096) {
+      file.slice(0,80).arrayBuffer().then(header => {
+        if (!cancelled && new TextDecoder().decode(header.slice(0,8)) === 'GW24MODL') setFileVersion(new DataView(header).getUint32(16,false));
+      }).catch(() => { if (!cancelled) setError('Không đọc được file đã chọn. Hãy chọn lại.'); });
+    }
+    return () => { cancelled = true; };
+  }, [file]);
   useEffect(() => onSnapshot(doc(firebaseClient().db, 'organizations', orgId, 'members', user.uid), snapshot => setOwner(snapshot.data()?.role === 'owner'), () => setOwner(false)), [orgId, user.uid]);
   useEffect(() => onSnapshot(query(collection(firebaseClient().db, 'organizations', orgId, 'models'), orderBy('created_at', 'desc'), limit(100)), snapshot => {
     setModels(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ModelEntry))); setError('');
@@ -65,18 +76,15 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
     event.preventDefault(); if (!file || disabled) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      if (file.size > 12000) throw new Error('File quá lớn. ABI 1 hỗ trợ tối đa 127 node.');
-      const text = await file.text();
-      let body;
-      if (file.name.toLowerCase().endsWith('.mem')) {
-        const value = memVersion.trim();
-        if (!/^(?:0[xX][0-9a-fA-F]{1,8}|[0-9]{1,10})$/.test(value) || Number(value) > 0xffffffff) throw new Error('Nhập version uint32 hợp lệ, ví dụ 0x02000002 hoặc 33554434.');
-        body = { orgId, name, mem: text, version: Number(value) };
-      } else if (file.name.toLowerCase().endsWith('.json')) {
-        let parsed;
-        try { parsed = JSON.parse(text); } catch { throw new Error('File không phải JSON hợp lệ.'); }
-        body = { orgId, name, model: parsed };
-      } else throw new Error('Chọn file .mem hoặc .json.');
+      if (!file.name.toLowerCase().endsWith('.gwm')) throw new Error('Chọn file model .gwm.');
+      if (file.size < 88 || file.size > 1096) throw new Error('File GWM phải có kích thước 88–1096 byte, tối đa 127 node.');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const view = new DataView(bytes.buffer);
+      if (new TextDecoder().decode(bytes.subarray(0, 8)) !== 'GW24MODL') throw new Error('File không có header GW24MODL hợp lệ.');
+      const version = view.getUint32(16, false);
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      const artifact_sha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2,'0')).join('');
+      const body = { orgId, name, kind: 'model', version, artifact_sha256, artifact_base64: btoa(String.fromCharCode(...bytes)) };
       const result = await modelRequest(user, '/api/models', body);
       setSelectedModel(result.model_id);
       setMessage(result.duplicate ? 'Phiên bản này đã tồn tại. Chọn thiết bị để phát lệnh nạp.' : 'Đã kiểm tra và lưu phiên bản model. Chưa gửi lệnh nạp đến thiết bị.');
@@ -109,12 +117,15 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
   }
 
   return <section className="model-panel" aria-labelledby="model-panel-title"><div className="panel-heading"><div><p className="eyebrow">MODEL DEPLOYMENT</p><h2 id="model-panel-title">Nạp model vào lõi IDS</h2></div><span className="device-chip">ABI 1 · 1–127 node</span></div>
-    <p className="model-intro">Tải file ROM .mem hoặc gói JSON, chọn phiên bản và thiết bị để nạp qua ESP32. CRC32 và SHA-256 được kiểm tra tại server và ESP. Chỉ báo thành công sau khi lõi xử lý xác nhận version hợp lệ; RUN_ENABLE được giữ thấp.</p>
-    {!owner ? <p className="model-note">Bạn đang có quyền xem. Chỉ owner được tải model, phát lệnh và hủy lệnh.</p> : <form className="model-upload" onSubmit={upload}><label>Tên model<input value={name} maxLength={80} required onChange={event => setName(event.target.value)} placeholder="Ví dụ: Gateway24 Model2" disabled={disabled}/></label><label>File model (.mem / .json)<input type="file" accept=".mem,.json,application/json,text/plain" required disabled={disabled} onChange={event => { const next = event.target.files?.[0] || null; setFile(next); if (!name && next) setName(next.name.replace(/\.(?:mem|json)$/i,'').slice(0,80)); }}/></label>{file?.name.toLowerCase().endsWith('.mem') ? <label>Version · ABI 1<input type="text" value={memVersion} onChange={event => setMemVersion(event.target.value)} placeholder="0x02000002 hoặc 33554434" maxLength={10} required disabled={disabled} autoComplete="off"/></label> : null}<button type="submit" disabled={disabled || !file || !name.trim()}>{busy ? 'Đang xử lý…' : 'Kiểm tra và lưu model'}</button></form>}
-    <p className="model-note">File .mem: một word hex 16 ký tự mỗi dòng, tối đa 127 node. Nhập version mới nếu nội dung model thay đổi. Server tự tính CRC32 và SHA-256; không cần chuyển file trước. JSON đã đóng gói vẫn được hỗ trợ. <a href="/models/gateway24-model2.json" download>Tải gói mẫu Gateway24 Model2</a>. Gói mẫu có cùng nội dung model mặc định; tải file không tự phát lệnh nạp.</p>
+    <p className="model-intro">Tải gói trọng số .gwm, chọn thiết bị để nạp qua ESP32. Version được đọc từ header; server và ESP kiểm tra ABI, CRC32 và SHA-256 trước khi nạp. Chỉ báo thành công sau khi lõi xử lý xác nhận version hợp lệ; RUN_ENABLE được giữ thấp.</p>
+    {!owner ? <p className="model-note">Bạn đang có quyền xem. Chỉ owner được tải model, phát lệnh và hủy lệnh.</p> : <form className="model-upload" onSubmit={upload}><label>Tên model<input value={name} maxLength={80} required onChange={event => setName(event.target.value)} placeholder="Ví dụ: Gateway24 Model2" disabled={disabled}/></label><label>File model (.gwm)<input type="file" accept=".gwm" required disabled={disabled} onChange={event => {
+      const next = event.target.files?.[0] || null; setFile(next); setFileVersion(null); setError('');
+      if (!name && next) setName(next.name.replace(/\.gwm$/i,'').slice(0,80));
+    }}/></label><label>Version trong file<input readOnly value={fileVersion === null ? '' : `0x${fileVersion.toString(16).padStart(8,'0')} · ${fileVersion}`} placeholder="Tự đọc từ header .gwm"/></label><button type="submit" disabled={disabled || !file || !name.trim()}>{busy ? 'Đang xử lý…' : 'Kiểm tra và lưu model'}</button></form>}
+    <p className="model-note">Gateway24 GWM v1 · ABI 1 · 24 feature · cửa sổ 5 giây · tối đa 127 node. <a href="/models/gateway24_model2_5s_v02000001.gwm" download>Tải gói mẫu Gateway24 Model2</a>. Lưu file chưa phát lệnh nạp; chọn thiết bị và bấm nạp ở bên dưới.</p>
     <div className="model-selectors"><label>Phiên bản model<select value={model?.id || ''} disabled={busy || !models.length} onChange={event => setSelectedModel(event.target.value)}>{models.length ? models.map(item => <option key={item.id} value={item.id}>{item.name} · v{item.model.version}</option>) : <option value="">Chưa có model</option>}</select></label><label>Thiết bị nhận<select value={device?.id || ''} disabled={busy || !devices.length} onChange={event => setSelectedDevice(event.target.value)}>{devices.length ? devices.map(item => <option key={item.id} value={item.id}>{item.name} · {item.id}</option>) : <option value="">Chưa có thiết bị</option>}</select></label></div>
-    {model ? <div className="model-metadata"><span>ABI <b>{model.model.abi}</b> · Nodes <b>{model.model.node_count}</b> · CRC32 <code>{model.model.crc32}</code></span><span>SHA-256 <code>{model.model.sha256}</code></span></div> : null}
-    {device?.heartbeat?.firmware_version !== 'ott-ids-1.2.0' ? <p className="model-note">Cần nạp firmware ESP có hỗ trợ model từ xa (ott-ids-1.2.0). Firmware cũ không thực thi lệnh này.</p> : null}
+    {model ? <div className="model-metadata"><span>ABI <b>{model.model.abi}</b> · Nodes <b>{model.model.node_count}</b> · CRC32 <code>{model.model.crc32}</code></span><span>Payload SHA-256 <code>{model.model.sha256}</code></span>{model.artifact ? <span>GWM · {model.artifact.artifact_size} byte · Artifact SHA-256 <code>{model.artifact.artifact_sha256}</code></span> : null}</div> : null}
+    {device?.heartbeat?.firmware_version !== 'ott-ids-1.3.0' ? <p className="model-note">Nạp firmware ESP ott-ids-1.3.0 để tải và kiểm tra trực tiếp gói GWM.</p> : null}
     {owner ? <div className="model-actions"><button type="button" disabled={disabled || !model || !device || !!active} onClick={deploy}>Nạp model vào thiết bị</button>{pending && ['queued','downloading'].includes(pending.status) ? <button type="button" className="secondary" disabled={disabled} onClick={cancel}>Hủy lệnh đang chờ</button> : null}</div> : null}
     {pending ? <p className={`model-current status-${pending.status}`} role="status">Lệnh hiện tại: <strong>{labels[pending.status] || pending.status}</strong> · {pending.name} · v{pending.version}{pending.error ? ` · ${errorLabels[pending.error] || pending.error}` : ''}</p> : null}
     {device?.heartbeat?.fpga ? <p className="model-note">Lõi IDS tại heartbeat cuối: SPI {device.heartbeat.fpga.spi_ready ? 'sẵn sàng' : 'chưa kết nối'}, model {device.heartbeat.fpga.model_valid ? 'hợp lệ' : 'chưa hợp lệ'}, version {device.heartbeat.fpga.active_version}, RUN_ENABLE {device.heartbeat.fpga.run_enabled ? '1' : '0'}.</p> : null}

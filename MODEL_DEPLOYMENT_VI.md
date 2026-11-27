@@ -1,101 +1,88 @@
-# Nạp model từ web vào lõi IDS
+# Nạp model GWM từ web vào lõi IDS
 
-## Upload trực tiếp .mem
+## Cách sử dụng
 
-Đăng nhập owner → Thiết bị → Nạp model vào lõi IDS. Chọn file `.mem`, nhập tên và
-**Version · ABI 1** (ví dụ `0x02000002` hoặc `33554434`), bấm **Kiểm tra và lưu model**.
-Server đọc mỗi dòng một word hex 16 ký tự (1–127 node), tự tính CRC32/SHA-256 và
-đóng gói nội bộ; không cần chuyển file bằng terminal. Hỗ trợ dòng trống, BOM, CRLF
-và comment `//`; không nhận address directive `@...` hoặc word sai độ dài.
-Sau đó chọn thiết bị và bấm **Nạp model vào thiết bị**. Upload không tự nạp FPGA.
-JSON đóng gói vẫn được hỗ trợ và dùng version trong file. Hai cách có cùng quy tắc
-phân quyền và ràng buộc version: cùng nội dung/version là trùng; khác nội dung phải đổi version.
+1. Commit/push bản web mới, chờ Vercel deploy thành công. Không đổi Firebase env hoặc device key. Thay đổi GWM này không cần đổi Firestore Rules; rules models/modelCommands đã triển khai vẫn dùng được.
+2. Nạp sketch ESP32 mới, firmware **ott-ids-1.3.0**. Giữ nguyên Wi-Fi/key, DIO 16 MB, OPI PSRAM và partition hiện có. **Không erase/format flash.** Firmware đọc được cache model cũ và journal NVS hiện có.
+3. Đăng nhập owner → **Thiết bị** (`/dashboard/devices`) → **Nạp model vào lõi IDS**.
+4. Chọn `gateway24_model2_5s_v02000001.gwm`, đặt tên. Version tự đọc từ header, không nhập tay. Bấm **Kiểm tra và lưu model**.
+5. Chọn phiên bản và đúng thiết bị → **Nạp model vào thiết bị**. Upload file chỉ lưu phiên bản, chưa tạo lệnh nạp.
+6. Chờ ESP nhận qua heartbeat (60–65 giây); các bước mạng xử lý/retry theo nhịp 15 giây. Chỉ coi là hoàn tất khi lịch sử báo **Nạp thành công**.
+7. Kiểm tra log và heartbeat: model hợp lệ, đúng version, không lỗi. `RUN_ENABLE` vẫn **0**; nếu cần enforcement, người vận hành chủ động bật tại thiết bị sau khi kiểm tra.
 
-## Đưa vào sử dụng
+Gói mẫu được giữ nguyên tại `public/models/gateway24_model2_5s_v02000001.gwm` và có link tải trên giao diện. Không upload `.joblib`, bitstream hoặc firmware ESP vào mục model.
 
-1. Trong `web`, commit/push bản web mới để Vercel deploy. Không đổi Firebase env hoặc device key.
-2. Deploy Firestore Rules mới: `npm run firebase:rules -- --project ott-ids` (đăng nhập Firebase CLI nếu cần). Rules cho phép thành viên đọc models/modelCommands, nhưng mọi ghi vẫn chỉ qua API server.
-3. Nạp lại sketch ESP32 với firmware **ott-ids-1.2.0**, giữ nguyên Wi-Fi/key, DIO 16 MB/OPI PSRAM và partition hiện có. Không erase/format flash. Upload firmware không tự tải hay nạp model từ cloud.
-4. Đăng nhập owner, mở **Thiết bị** (`/dashboard/devices`). Trong phần **Nạp model vào lõi IDS**, tải gói mẫu hoặc gói tự đóng, chọn tên và bấm **Kiểm tra và lưu model**.
-5. Chọn model và đúng thiết bị, bấm **Nạp model vào thiết bị**, đọc xác nhận rồi thực hiện. Khi online, ESP nhận ở kỳ heartbeat tiếp theo (60–65 giây); mỗi bước mạng còn có nhịp xử lý/retry 15 giây. Chờ lịch sử báo thành công, không coi trạng thái `loading` là thành công.
-6. Kiểm tra log SPI/version và heartbeat FPGA. `RUN_ENABLE` vẫn **0**. Nếu cần enforcement, người vận hành chủ động gửi lệnh Serial `1` sau khi kiểm tra; web không tự bật lại.
+## Đặc tả đã áp dụng
 
-## Gói model
+Theo `README_UPLOAD_VI.md` đi kèm artifact: Gateway24 `.gwm` v1, header 80 byte; mọi số nguyên trong header **big-endian**, payload từng word 64 bit **little-endian**.
 
-Chỉ hỗ trợ mô hình word ROM ABI 1, **1–127 node**, mỗi node 64 bit. Không phải nạp bitstream FPGA, firmware ESP hoặc tự huấn luyện model.
+| Offset | Kích thước | Nội dung bắt buộc |
+|---|---|---|
+| 0 | 8 | ASCII `GW24MODL` |
+| 8 | 2 | Format version = 1 |
+| 10 | 2 | Header size = 80 |
+| 12 | 2 | Model ABI = 1 |
+| 14 | 2 | Word bits = 64 |
+| 16 | 4 | Runtime version uint32 |
+| 20 | 2 | Node count 1–127 |
+| 22 | 2 | Feature count = 24 |
+| 24 | 4 | Flow window = 5000 ms |
+| 28 | 4 | Payload length = node count × 8 |
+| 32 | 4 | Payload CRC-32/ISO-HDLC |
+| 36 | 4 | Flags = 1 (payload word LE) |
+| 40 | 32 | Payload SHA-256 dạng bytes |
+| 72 | 8 | Reserved, tất cả bằng 0 |
+| 80 | count × 8 | Payload |
 
-```powershell
-# Chạy trong web. Output phải là file mới để tránh ghi đè nhầm.
-npm run model:pack -- --input ../esp32_arduino_pin_bringup/gateway24_model_generated.h --version 0x02000001 --output gateway24.json
-# Với ROM khác: file .mem có đúng một word hex 16 ký tự mỗi dòng.
-npm run model:pack -- --input D:/duong-dan/node_rom.mem --version 0x02000002 --output model-v2.json
-```
+Server và ESP từ chối file thiếu/thừa byte, quá 1096 byte, sai header/ABI/feature/window/flags/reserved, CRC hoặc SHA. CRC reflected polynomial `0xEDB88320`, init/final XOR `0xFFFFFFFF`.
 
-```json
-{
-  "format": "ott-ids-model",
-  "abi": 1,
-  "version": 33554433,
-  "node_count": 71,
-  "words": ["<mỗi word là chuỗi hex 16 ký tự; phải đủ 71 word>"],
-  "crc32": "44124ea7",
-  "sha256": "<64 ký tự hex do công cụ tính>"
-}
-```
+| Gói mẫu | Giá trị |
+|---|---|
+| File size | 648 byte |
+| Runtime version | `0x02000001` / `33554433` |
+| Node count / payload | 71 / 568 byte |
+| Payload CRC32 | `44124ea7` |
+| Payload SHA-256 | `c26dd8cf58278f33fec4cc22dc4d3190ada7fc4f27aa986eb62e96e91d95dad3` |
+| Artifact SHA-256 (toàn file) | `291bd477354327447258c17139ded1933f40c7dcf4afbd6a1b716eb2ed857fd1` |
 
-Ví dụ trên mô tả schema, không phải file dùng để upload. Gói đầy đủ tại `public/models/gateway24-model2.json`.
-Version là uint32, không phải chuỗi; words luôn là chuỗi để không mất chính xác 64 bit.
-CRC32 và SHA-256 tính trên **binary little-endian của từng word theo thứ tự node**.
-SPI lại truyền mỗi word theo MSB trước, đúng contract FPGA hiện tại. SHA này khác
-`GATEWAY24_MODEL_ROM_SHA256` cũ vốn gắn với artifact ROM, không dùng lẫn hai giá trị.
-Một version trong cùng tổ chức không được gán cho nội dung khác. Muốn sửa model phải dùng version mới;
-có thể chọn lại một version cũ đã lưu để rollback có chủ ý. Kiểm tra checksum/ABI không chứng minh
-model được huấn luyện đúng hoặc cây có độ chính xác mong muốn; thử trước bằng model đã xác minh.
+SHA payload và SHA toàn artifact là hai giá trị khác nhau. SHA file ROM text cũng khác; không dùng thay thế. Checksum xác minh tính toàn vẹn, không chứng minh độ chính xác phân loại. Định dạng hiện chưa có chữ ký số; triển khai production cần bổ sung chữ ký và public key tin cậy trong firmware theo đề xuất của đặc tả.
 
-## Luồng và dữ liệu
+## API, Firestore và tương thích
 
-Owner → `POST /api/models` (Firebase ID token) → kiểm tra owner/format/ABI/count/CRC/SHA →
-Firestore `organizations/{orgId}/models/{modelId}`. `modelId` là SHA-256 manifest chuẩn hóa.
-`modelVersions/{version}` giữ ràng buộc bất biến và không đọc được từ browser.
+Owner upload `POST /api/models` bằng Firebase ID token. Body JSON gồm `orgId`, `name`, `kind: "model"`, `version` dạng số từ header, `artifact_base64` và `artifact_sha256`. Server kiểm tra lại mọi trường và checksum, không tin metadata từ trình duyệt.
 
-`POST /api/model-commands` tạo UUID v4 command idempotent, lưu lịch sử tại
-`organizations/{orgId}/devices/{deviceId}/modelCommands/{commandId}` và tóm tắt
-`model_update` trên device. API từ chối nếu thiết bị đã có lệnh queued/downloading/loading.
-Viewer chỉ xem. Thiết bị offline nhận lệnh khi kết nối lại; lệnh không tự hết hạn.
+Firestore `organizations/{orgId}/models/{modelId}` lưu core model chuẩn hóa để tương thích dữ liệu cũ, thêm `artifact` metadata và `artifact_base64` chứa đúng bytes file. File tối đa 1096 byte nên không cần dịch vụ lưu trữ riêng. `modelId` vẫn là SHA-256 manifest core chuẩn hóa; `modelVersions/{version}` vẫn ràng buộc một version với một nội dung trong mỗi tổ chức. Upload lại GWM trùng core/version bổ sung artifact vào bản cũ, giữ tên và ngày tạo. Nội dung thay đổi phải dùng version mới.
 
-Heartbeat trả thêm `model_command: {command_id, model_id}` ngay cả khi lượt ghi telemetry bị giới hạn.
-ESP dùng cùng device key POST `/api/device/model` với `{command_id}` để nhận gói model.
-Không đọc Firestore trực tiếp và không nhận URL ngoài tùy ý. Download/progress/result đều kiểm tra
-registry, enabled, tổ chức, thiết bị và command hiện hành. Model không public, trừ gói mẫu mặc định.
+`POST /api/model-commands` tạo UUID v4 idempotent; ghi lịch sử tại `devices/{deviceId}/modelCommands/{commandId}` và tóm tắt `model_update`. Một thiết bị chỉ có một lệnh queued/downloading/loading. Viewer chỉ xem; mọi ghi browser trực tiếp vẫn bị rules từ chối.
 
-Trạng thái: `queued → downloading → loading → succeeded/failed`, hoặc `cancelled` trước loading.
-ESP gọi `/api/device/model-result` với status. Trước khi SPI được phép nạp, ESP phải nhận xác nhận
-server cho `loading`; vì vậy hủy lệnh thắng trước bước này ngăn việc nạp. Khi đã loading không được hủy.
-Kết quả thành công phải có đúng version/SHA, model_valid=true, protocol_error=load_error=0, run_enabled=false.
-Server chỉ ghi `active_model` sau kết quả đó. Trường này là lần xác nhận nạp, không phải trạng thái phần cứng liên tục.
-Heartbeat có thêm map `fpga` từ đọc SPI: spi_ready, model_valid, active_version, protocol_error, load_error, run_enabled.
+Heartbeat trả `model_command: {command_id, model_id, artifact_sha256}` kể cả khi telemetry bị giới hạn ghi. ESP dùng cùng device key (`X-Device-ID`, `X-Device-Key`), POST `/api/device/model` với `{command_id}` và header `Accept: application/vnd.gateway24.model`. API trả **binary GWM nguyên vẹn**, Content-Type tương ứng, Content-Length và `X-Artifact-SHA256`; `Cache-Control: no-store`. Thiết bị chỉ tải model được gán cho command hiện hành trong đúng tổ chức, không nhận URL ngoài tùy ý.
 
-## Flash, mất mạng và reboot
+Firmware 1.3.0 đối chiếu SHA toàn file với heartbeat và header download; sau đó kiểm header, payload CRC/SHA trước khi staging. Với command cũ chưa có SHA artifact, dùng digest trả qua HTTPS đã xác thực. API giữ JSON cũ khi client không yêu cầu binary để firmware cũ tiếp tục hoạt động; web mới chỉ cho chọn `.gwm`. Model cũ trong DB có thể tạo GWM tương đương khi firmware mới tải, không cần xóa hay upload lại toàn bộ lịch sử.
 
-- HTTPS worker chỉ tải/kiểm tra/lưu file. Sketch/main task là bên duy nhất dùng SPI, nên không xen lệnh với đọc FIFO/Serial.
-- Model được ghi `/models/<commandId>.bin.tmp`, flush, đọc lại kiểm tra rồi rename sang `.bin`. File có checksum header riêng, CRC dữ liệu và SHA-256. Model cache dùng cùng LittleFS nhưng tách khỏi `/q` alert outbox; không có partition mới.
-- Con trỏ active/previous, phase, ID lệnh và kết quả nằm trong blob NVS `model-state` có CRC. File active cũ không bị ghi đè khi tải. Chỉ chuyển active sau khi FPGA xác nhận và journal ghi thành công; giữ bản trước và model compiled dự phòng.
-- Trước SPI, lưu phase Applying bền vững. Kết quả mạng bị mất được gửi lại, không nạp lại cùng lệnh đã kết thúc. Ready sau reboot phải được server cho phép lại; Applying bị gián đoạn trở thành failed/interrupted, không tự chạy lại candidate, và thử khôi phục cache/default với enforcement thấp.
-- Khi FPGA không có model, firmware ưu tiên cache đã xác minh, sau đó model compiled. Lệnh Serial `m` cũng dùng thứ tự đó. Nếu nạp/commit thất bại, thử ABORT và khôi phục cache/default; không bảo đảm khôi phục được nếu FPGA/flash/dây đang lỗi. Xem log và heartbeat thực tế.
-- Không ACK/xóa alert để nạp model. Mạng chậm hoặc nạp SPI có thể trì hoãn xử lý; FIFO/outbox vẫn hữu hạn. Chọn thời điểm ít traffic để cập nhật. Không format outbox để sửa lỗi model.
-- Nếu không thể lưu journal, firmware không bắt đầu SPI. Khi NVS/flash hỏng, khả năng giữ kết quả qua reboot cũng bị giới hạn; cần chẩn đoán storage trước khi phát thêm lệnh.
+Trạng thái: `queued → downloading → loading → succeeded/failed`; cho phép hủy trước loading. ESP phải nhận server xác nhận `loading` trước khi main task nạp SPI. Thành công yêu cầu đúng version/payload SHA, model_valid=true, protocol_error=load_error=0, run_enabled=false.
 
-## Kiểm thử
+## Flash, SPI và khôi phục
+
+- HTTPS worker ghi `/models/<commandId>.bin.tmp` gồm envelope kích thước/SHA và bytes GWM, flush, đọc kiểm tra lại rồi rename. Model dùng chung LittleFS với outbox nhưng thư mục riêng; không đổi partition.
+- Journal NVS `model-state` có CRC giữ command, phase, active/previous và kết quả chờ gửi. Cache binary cũ vẫn đọc được; layout NVS và `OttModelImage` giữ nguyên. Chỉ đổi active khi lõi xác nhận và journal ghi thành công; giữ previous và model compiled dự phòng.
+- Main task là bên duy nhất dùng SPI. Đọc word LE thành uint64, gửi `CMD_WORD` **MSB trước**; SPI mode 0, 1 MHz, không đổi contract loader ABI 1. Không cần đổi bitstream cho model cùng contract.
+- Lưu Applying trước SPI. Ready sau reboot phải xin phép server lại; Applying gián đoạn thành failed/interrupted, không tự nạp lại candidate và thử restore cache/default. Kết quả mạng mất được gửi lại, không nạp lại command đã kết thúc.
+- Khi lõi mất model, `m`/auto-restore ưu tiên cache hợp lệ rồi model compiled. Nạp/commit thất bại thử ABORT và restore; xem log nếu storage hoặc phần cứng lỗi. `RUN_ENABLE` giữ 0.
+- Không xóa/ACK alert để nạp model. Chọn lúc ít traffic vì queue hữu hạn. Không format flash để nâng cấp định dạng.
+
+## Đóng gói và kiểm thử
+
+Đã có `.gwm` thì upload trực tiếp. Nếu xuất model từ ROM text/header cũ:
 
 ```powershell
-npm run test:models
-npm run test:alerts
-npm run test:runtime
+npm run model:pack -- --input D:/duong-dan/node_rom.mem --version 0x02000002 --output model-v2.gwm
+```
+
+Công cụ không ghi đè file có sẵn. `.json` chỉ giữ cho tích hợp cũ.
+
+```powershell
+npm run test:all
 npm run build
 ```
 
-Kiểm thử chỉ dùng emulator `demo-lastdance`, không nạp FPGA và không tạo lệnh trên Firebase thật.
-Trên board cần thử: model mẫu → version/SHA đúng → RUN_ENABLE=0; mất Wi-Fi khi tải/gửi kết quả;
-reboot ESP trước và trong lúc SPI; reset FPGA sau một lần cập nhật thành công; ABI/checksum sai;
-hai lệnh đồng thời; hủy khi downloading. Xác minh alert persist/delivered vẫn chạy sau cập nhật.
-Build/compile không thay thế các thử nghiệm phần cứng và cắt nguồn này.
+Tests dùng emulator `demo-lastdance`, không nạp phần cứng và không ghi Firebase thật. Trên board cần thử gói mẫu, restore cache cũ/mới sau reboot, mất Wi-Fi khi tải/gửi kết quả, hủy khi downloading, reset lõi IDS và cắt nguồn lúc nạp. Xác minh alert persist/delivered vẫn hoạt động. Build/compile không thay thế kiểm thử vật lý này.

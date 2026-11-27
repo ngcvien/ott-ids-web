@@ -26,7 +26,8 @@ FPGA là nền tảng kiểm thử hiện tại, được giữ trong tài liệ
 
 Đã có upload model ABI 1, kiểm tra CRC/SHA, phát lệnh theo thiết bị và lịch sử kết quả
 trong trang **Thiết bị**. Xem [hướng dẫn triển khai, đóng gói và khôi phục model](MODEL_DEPLOYMENT_VI.md).
-Cần deploy web + Firestore Rules mới, rồi nạp firmware ESP `ott-ids-1.2.0`.
+Web nhận gói `.gwm` Gateway24 v1, tự đọc version và kiểm header/CRC/SHA. Deploy web trước,
+rồi nạp firmware ESP `ott-ids-1.3.0` để tải binary GWM. Không erase flash; cache/model cũ vẫn được hỗ trợ.
 
 ## Chi tiết cảnh báo
 

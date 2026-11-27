@@ -8,6 +8,8 @@ import { hashKey } from '../src/server/alerts.mjs';
 import { packModel, parseMemModel, validateModel, modelIdFor } from '../src/server/model-format.mjs';
 import { uploadModel, manageModelCommand, downloadDeviceModel, reportModelResult, modelAdminHttp, modelDeviceHttp, validateModelResult } from '../src/server/models.mjs';
 import { saveHeartbeat, validateHeartbeat } from '../src/server/heartbeat.mjs';
+import { createGwm, parseGwm, GWM_MEDIA_TYPE } from '../src/server/gwm-format.mjs';
+import { downloadDeviceArtifact } from '../src/server/models.mjs';
 
 let app, db, sequence = 0;
 const key = 'M'.repeat(43);
@@ -33,6 +35,56 @@ async function fixture() {
 const statusError = status => error => error.status === status;
 const report = (f, status, extra = {}) => reportModelResult(db, f.deviceId, key, { command_id: f.input.commandId, status, ...extra });
 const success = f => ({ active_version: f.model.version, sha256: f.model.sha256, model_valid: true, protocol_error: 0, load_error: 0, run_enabled: false });
+
+test('owner GWM upload preserves exact bytes, deduplicates legacy version and rejects invalid envelope/hash', async () => {
+  const f = await fixture(), bytes = createGwm(f.model), parsed = parseGwm(bytes);
+  const body = { orgId: f.orgId, name: 'GWM upload', kind: 'model', version: f.model.version,
+    artifact_base64: bytes.toString('base64'), artifact_sha256: parsed.artifact.artifact_sha256 };
+  await assert.rejects(uploadModel(db,'model-viewer',body),statusError(403));
+  const result = await uploadModel(db,'model-owner',body);
+  assert.equal(result.model_id,f.modelId); assert.equal(result.duplicate,true);
+  const stored = (await db.doc(`organizations/${f.orgId}/models/${f.modelId}`).get()).data();
+  assert.equal(stored.artifact_base64,body.artifact_base64);
+  assert.equal(stored.name,'Test model'); assert.deepEqual(stored.model,f.model);
+  assert.deepEqual(stored.artifact,parsed.artifact);
+  for (const change of [{kind:'firmware'},{version:2},{artifact_sha256:'0'.repeat(64)},{model:f.model},{mem:'00'}]) {
+    await assert.rejects(uploadModel(db,'model-owner',{...body,...change}),statusError(422));
+  }
+  const newer = createGwm({...f.model,version:f.model.version+1});
+  const added = await uploadModel(db,'model-owner',{...body,version:f.model.version+1,artifact_base64:newer.toString('base64'),artifact_sha256:parseGwm(newer).artifact.artifact_sha256});
+  assert.equal(added.duplicate,false);
+});
+
+test('authenticated binary download returns exact GWM, expected digest and retains legacy JSON response', async () => {
+  const f = await fixture(), bytes = createGwm(f.model), digest = parseGwm(bytes).artifact.artifact_sha256;
+  await manageModelCommand(db,'model-owner',f.input);
+  const body = {command_id:f.input.commandId};
+  const request = new Request('http://local/api/device/model',{method:'POST',headers:{
+    'Content-Type':'application/json','X-Device-ID':f.deviceId,'X-Device-Key':key,'Accept':GWM_MEDIA_TYPE},body:JSON.stringify(body)});
+  const response = await modelDeviceHttp(request,()=>db,downloadDeviceArtifact);
+  assert.equal(response.status,200); assert.equal(response.headers.get('content-type'),GWM_MEDIA_TYPE);
+  assert.equal(response.headers.get('content-length'),String(bytes.length));
+  assert.equal(response.headers.get('x-artifact-sha256'),digest);
+  assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+  assert.deepEqual((await downloadDeviceModel(db,f.deviceId,key,body)).model,f.model);
+  await assert.rejects(downloadDeviceArtifact(db,f.deviceId,'W'.repeat(43),body),statusError(401));
+  await manageModelCommand(db,'model-owner',{...f.input,action:'cancel'});
+  await assert.rejects(downloadDeviceArtifact(db,f.deviceId,key,body),statusError(409));
+});
+
+test('binary device download rejects corrupt stored artifacts and command hash substitution', async () => {
+  const f = await fixture(), bytes = createGwm(f.model);
+  const ref = db.doc(`organizations/${f.orgId}/models/${f.modelId}`);
+  await uploadModel(db,'model-owner',{orgId:f.orgId,name:'GWM',kind:'model',artifact_base64:bytes.toString('base64')});
+  await manageModelCommand(db,'model-owner',f.input);
+  const corrupt = Buffer.from(bytes); corrupt[80] ^= 1;
+  await ref.update({artifact_base64:corrupt.toString('base64')});
+  await assert.rejects(downloadDeviceArtifact(db,f.deviceId,key,{command_id:f.input.commandId}),statusError(422));
+  await ref.update({artifact_base64:bytes.toString('base64')});
+  await f.device.collection('modelCommands').doc(f.input.commandId).update({artifact_sha256:'0'.repeat(64)});
+  await assert.rejects(downloadDeviceArtifact(db,f.deviceId,key,{command_id:f.input.commandId}),statusError(409));
+});
 
 test('release package matches existing 71-node FPGA CRC; canonical SHA is over little-endian binary words', async () => {
   const model = JSON.parse(await readFile(new URL('../public/models/gateway24-model2.json', import.meta.url), 'utf8'));
@@ -92,7 +144,7 @@ test('heartbeat delivers the pending command even inside telemetry throttling wi
   await manageModelCommand(db, 'model-owner', f.input);
   const heartbeat = await saveHeartbeat(db, f.deviceId, key, telemetry);
   assert.equal(heartbeat.updated, false);
-  assert.deepEqual(heartbeat.model_command, { command_id: f.input.commandId, model_id: f.modelId });
+  assert.deepEqual(heartbeat.model_command, { command_id: f.input.commandId, model_id: f.modelId, artifact_sha256: parseGwm(createGwm(f.model)).artifact.artifact_sha256 });
   assert.equal((await f.device.collection('alerts').get()).size, 0);
 });
 test('device downloads only its assigned immutable model; wrong/disabled/other device keys cannot fetch it', async () => {

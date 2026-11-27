@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { ApiError, authenticated, readBody, validId } from './alerts.mjs';
 import { modelIdFor, parseMemModel, validateModel } from './model-format.mjs';
+import { decodeGwmBase64, storedGwm, GWM_MEDIA_TYPE } from './gwm-format.mjs';
 
 const ACTIVE = ['queued', 'downloading', 'loading'];
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -18,10 +19,15 @@ async function requireOwner(transaction, db, orgId, uid) {
   }
 }
 export async function uploadModel(db, uid, input) {
-  requireInput(input, ['orgId', 'name', 'model', 'mem', 'version']);
+  requireInput(input, ['orgId', 'name', 'model', 'mem', 'version', 'kind', 'artifact_base64', 'artifact_sha256']);
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 80) throw new ApiError(422, 'invalid_request', 'Model name required (1–80 characters)');
-  if ((input.mem !== undefined && input.model !== undefined) || (input.mem === undefined && input.version !== undefined)) throw new ApiError(422, 'invalid_request', 'Supply either MEM with version or a JSON model');
-  const model = input.mem !== undefined ? parseMemModel(input.mem, input.version) : validateModel(input.model);
+  const isArtifact = input.artifact_base64 !== undefined;
+  if (isArtifact && (input.kind !== 'model' || input.mem !== undefined || input.model !== undefined)) throw new ApiError(422, 'invalid_request', 'GWM upload requires kind=model and one artifact');
+  if (!isArtifact && (input.kind !== undefined || input.artifact_sha256 !== undefined || (input.mem !== undefined && input.model !== undefined) || (input.mem === undefined && input.version !== undefined))) throw new ApiError(422, 'invalid_request', 'Supply one model format');
+  const artifactPackage = isArtifact ? decodeGwmBase64(input.artifact_base64, input.artifact_sha256) : null;
+  const model = artifactPackage ? artifactPackage.model : input.mem !== undefined ? parseMemModel(input.mem, input.version) : validateModel(input.model);
+  if (artifactPackage && input.version !== undefined && input.version !== model.version) throw new ApiError(422, 'invalid_gwm', 'Upload version differs from GWM header');
+  const artifactFields = artifactPackage ? { artifact: artifactPackage.artifact, artifact_base64: artifactPackage.bytes.toString('base64') } : {};
   const id = modelIdFor(model);
   return db.runTransaction(async transaction => {
     await requireOwner(transaction, db, input.orgId, uid);
@@ -30,8 +36,11 @@ export async function uploadModel(db, uid, input) {
     const [existing, reserved] = await transaction.getAll(ref, version);
     if (reserved.exists && reserved.data().model_id !== id) throw new ApiError(409, 'version_conflict', 'This version is already bound to different model content');
     if (!existing.exists) {
-      transaction.create(ref, { name: input.name.trim(), model, created_by: uid, created_at: FieldValue.serverTimestamp() });
+      transaction.create(ref, { name: input.name.trim(), model, ...artifactFields, created_by: uid, created_at: FieldValue.serverTimestamp() });
       transaction.set(version, { model_id: id });
+    } else if (artifactPackage) {
+      if (existing.data().artifact?.artifact_sha256 && existing.data().artifact.artifact_sha256 !== artifactPackage.artifact.artifact_sha256) throw new ApiError(409, 'version_conflict', 'Version already has another artifact');
+      transaction.update(ref, artifactFields);
     }
     return { model_id: id, duplicate: existing.exists };
   });
@@ -65,8 +74,10 @@ export async function manageModelCommand(db, uid, input) {
     if (!modelSnapshot.exists) throw new ApiError(404, 'model_not_found', 'Model not found');
     const model = validateModel(modelSnapshot.data().model);
     if (modelIdFor(model) !== input.modelId) throw new ApiError(409, 'invalid_model', 'Stored model identity mismatch');
+    const gwm = storedGwm(modelSnapshot.data());
     const summary = { command_id: input.commandId, model_id: input.modelId, name: modelSnapshot.data().name,
       version: model.version, sha256: model.sha256, node_count: model.node_count, abi: model.abi,
+      artifact_sha256: gwm.artifact.artifact_sha256, artifact_size: gwm.artifact.artifact_size,
       status: 'queued', requested_by: uid, requested_at: FieldValue.serverTimestamp(), updated_at: FieldValue.serverTimestamp() };
     transaction.create(job, summary);
     transaction.update(device, { model_update: summary });
@@ -75,7 +86,7 @@ export async function manageModelCommand(db, uid, input) {
 }
 export function heartbeatModelCommand(deviceData) {
   const job = deviceData?.model_update;
-  return job && ACTIVE.includes(job.status) ? { model_command: { command_id: job.command_id, model_id: job.model_id } } : {};
+  return job && ACTIVE.includes(job.status) ? { model_command: { command_id: job.command_id, model_id: job.model_id, ...(job.artifact_sha256 ? { artifact_sha256: job.artifact_sha256 } : {}) } } : {};
 }
 async function deviceContext(transaction, db, deviceId, key, commandId) {
   if (typeof commandId !== 'string' || !UUID.test(commandId)) throw new ApiError(422, 'invalid_request', 'Invalid command ID');
@@ -89,7 +100,7 @@ async function deviceContext(transaction, db, deviceId, key, commandId) {
   if (!jobSnapshot.exists || deviceSnapshot.data().model_update?.command_id !== commandId) throw new ApiError(409, 'stale_command', 'Command is no longer current');
   return { device, job, data: jobSnapshot.data(), orgId: credential.orgId };
 }
-export async function downloadDeviceModel(db, deviceId, key, input) {
+export async function downloadDeviceModel(db, deviceId, key, input, binary = false) {
   requireInput(input, ['command_id']);
   return db.runTransaction(async transaction => {
     const context = await deviceContext(transaction, db, deviceId, key, input.command_id);
@@ -98,8 +109,19 @@ export async function downloadDeviceModel(db, deviceId, key, input) {
     if (!stored.exists) throw new ApiError(404, 'model_not_found', 'Model not found');
     const model = validateModel(stored.data().model);
     if (modelIdFor(model) !== context.data.model_id) throw new ApiError(409, 'invalid_model', 'Stored model identity mismatch');
+    if (binary) {
+      const gwm = storedGwm(stored.data());
+      if (context.data.artifact_sha256 && context.data.artifact_sha256 !== gwm.artifact.artifact_sha256) throw new ApiError(409, 'invalid_gwm', 'Command artifact hash mismatch');
+      return { bytes: gwm.bytes, artifact: gwm.artifact, version: model.version };
+    }
     return { command_id: input.command_id, model_id: context.data.model_id, model };
   });
+}
+export async function downloadDeviceArtifact(db, deviceId, key, input) {
+  const result = await downloadDeviceModel(db, deviceId, key, input, true);
+  return new Response(new Uint8Array(result.bytes), { headers: { 'Content-Type': GWM_MEDIA_TYPE,
+    'Content-Length': String(result.bytes.length), 'X-Artifact-SHA256': result.artifact.artifact_sha256,
+    'Content-Disposition': `attachment; filename="model-${result.version}.gwm"`, 'Cache-Control': 'no-store' } });
 }
 export function validateModelResult(input) {
   requireInput(input, ['command_id', 'status', 'error', 'active_version', 'model_valid', 'protocol_error', 'load_error', 'run_enabled', 'sha256']);
@@ -159,7 +181,8 @@ export async function modelDeviceHttp(request, getDatabase, operation) {
     if (!validId(deviceId) || typeof key !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(key)) throw new ApiError(401, 'invalid_device', 'Invalid credential');
     if (request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new ApiError(415, 'unsupported_media_type', 'JSON required');
     const body = await readBody(request);
-    return Response.json(await operation(getDatabase(), deviceId, key, body), { headers: { 'Cache-Control': 'no-store' } });
+    const result = await operation(getDatabase(), deviceId, key, body);
+    return result instanceof Response ? result : Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return modelHttpError(error); }
 }
 function modelHttpError(error) {
