@@ -126,7 +126,7 @@ export async function reportModelResult(db, deviceId, key, body) {
     }
     if (input.status === 'succeeded' && (data.status !== 'loading' || input.active_version !== data.version ||
         input.sha256 !== data.sha256 || input.model_valid !== true || input.protocol_error !== 0 || input.load_error !== 0 || input.run_enabled !== false)) {
-      throw new ApiError(409, 'verification_failed', 'FPGA must report the expected valid model, zero errors and enforcement off');
+      throw new ApiError(409, 'verification_failed', 'Processing core must report the expected valid model, zero errors and enforcement off');
     }
     if (data.status === 'loading' && input.status === 'downloading') throw new ApiError(409, 'invalid_transition', 'Cannot move loading back to downloading');
     if (data.status === input.status) return { accepted: true, duplicate: true };

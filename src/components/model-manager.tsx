@@ -13,8 +13,8 @@ const errorLabels: Record<string,string> = {
   owner_required: 'Chỉ owner được tải model và phát lệnh.', version_conflict: 'Version này đã có model khác. Hãy dùng version mới.',
   device_busy: 'Thiết bị đang có một lệnh chưa hoàn tất.', cannot_cancel: 'Lệnh đã được phép nạp hoặc đã kết thúc, không thể hủy.',
   invalid_model: 'Model không đúng định dạng ABI 1 hoặc checksum không khớp.', unauthorized: 'Phiên đăng nhập hết hạn. Hãy đăng nhập lại.',
-  storage_failed: 'ESP không lưu được model vào flash.', fpga_not_ready: 'FPGA chưa sẵn sàng nhận model.',
-  fpga_load_failed: 'FPGA không xác nhận model hợp lệ.', commit_failed: 'Đã nạp nhưng không lưu được trạng thái kích hoạt trên ESP.',
+  storage_failed: 'ESP không lưu được model vào flash.', fpga_not_ready: 'Lõi xử lý chưa sẵn sàng nhận model.',
+  fpga_load_failed: 'Lõi xử lý không xác nhận model hợp lệ.', commit_failed: 'Đã nạp nhưng không lưu được trạng thái kích hoạt trên ESP.',
   interrupted: 'Lệnh bị gián đoạn hoặc không còn hiệu lực.',
 };
 
@@ -99,7 +99,7 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
   }
   async function cancel() {
     if (disabled || !device || !pending || !['queued','downloading'].includes(pending.status)) return;
-    if (!window.confirm(`Hủy lệnh đang chờ của ${device.id}? Chỉ hủy được trước khi ESP được phép nạp FPGA.`)) return;
+    if (!window.confirm(`Hủy lệnh đang chờ của ${device.id}? Chỉ hủy được trước khi ESP được phép nạp model vào lõi xử lý.`)) return;
     setBusy(true); setError(''); setMessage('');
     try {
       await modelRequest(user, '/api/model-commands', { orgId, deviceId: device.id, commandId: pending.command_id, action: 'cancel' });
@@ -108,8 +108,8 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
     finally { setBusy(false); }
   }
 
-  return <section className="model-panel" aria-labelledby="model-panel-title"><div className="panel-heading"><div><p className="eyebrow">MODEL DEPLOYMENT</p><h2 id="model-panel-title">Nạp model vào FPGA</h2></div><span className="device-chip">ABI 1 · 1–127 node</span></div>
-    <p className="model-intro">Tải file ROM .mem hoặc gói JSON, chọn phiên bản và thiết bị để nạp qua ESP32. CRC32 và SHA-256 được kiểm tra tại server và ESP. Chỉ báo thành công sau khi FPGA xác nhận version hợp lệ; RUN_ENABLE được giữ thấp.</p>
+  return <section className="model-panel" aria-labelledby="model-panel-title"><div className="panel-heading"><div><p className="eyebrow">MODEL DEPLOYMENT</p><h2 id="model-panel-title">Nạp model vào lõi IDS</h2></div><span className="device-chip">ABI 1 · 1–127 node</span></div>
+    <p className="model-intro">Tải file ROM .mem hoặc gói JSON, chọn phiên bản và thiết bị để nạp qua ESP32. CRC32 và SHA-256 được kiểm tra tại server và ESP. Chỉ báo thành công sau khi lõi xử lý xác nhận version hợp lệ; RUN_ENABLE được giữ thấp.</p>
     {!owner ? <p className="model-note">Bạn đang có quyền xem. Chỉ owner được tải model, phát lệnh và hủy lệnh.</p> : <form className="model-upload" onSubmit={upload}><label>Tên model<input value={name} maxLength={80} required onChange={event => setName(event.target.value)} placeholder="Ví dụ: Gateway24 Model2" disabled={disabled}/></label><label>File model (.mem / .json)<input type="file" accept=".mem,.json,application/json,text/plain" required disabled={disabled} onChange={event => { const next = event.target.files?.[0] || null; setFile(next); if (!name && next) setName(next.name.replace(/\.(?:mem|json)$/i,'').slice(0,80)); }}/></label>{file?.name.toLowerCase().endsWith('.mem') ? <label>Version · ABI 1<input type="text" value={memVersion} onChange={event => setMemVersion(event.target.value)} placeholder="0x02000002 hoặc 33554434" maxLength={10} required disabled={disabled} autoComplete="off"/></label> : null}<button type="submit" disabled={disabled || !file || !name.trim()}>{busy ? 'Đang xử lý…' : 'Kiểm tra và lưu model'}</button></form>}
     <p className="model-note">File .mem: một word hex 16 ký tự mỗi dòng, tối đa 127 node. Nhập version mới nếu nội dung model thay đổi. Server tự tính CRC32 và SHA-256; không cần chuyển file trước. JSON đã đóng gói vẫn được hỗ trợ. <a href="/models/gateway24-model2.json" download>Tải gói mẫu Gateway24 Model2</a>. Gói mẫu có cùng nội dung model mặc định; tải file không tự phát lệnh nạp.</p>
     <div className="model-selectors"><label>Phiên bản model<select value={model?.id || ''} disabled={busy || !models.length} onChange={event => setSelectedModel(event.target.value)}>{models.length ? models.map(item => <option key={item.id} value={item.id}>{item.name} · v{item.model.version}</option>) : <option value="">Chưa có model</option>}</select></label><label>Thiết bị nhận<select value={device?.id || ''} disabled={busy || !devices.length} onChange={event => setSelectedDevice(event.target.value)}>{devices.length ? devices.map(item => <option key={item.id} value={item.id}>{item.name} · {item.id}</option>) : <option value="">Chưa có thiết bị</option>}</select></label></div>
@@ -117,7 +117,7 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
     {device?.heartbeat?.firmware_version !== 'ott-ids-1.2.0' ? <p className="model-note">Cần nạp firmware ESP có hỗ trợ model từ xa (ott-ids-1.2.0). Firmware cũ không thực thi lệnh này.</p> : null}
     {owner ? <div className="model-actions"><button type="button" disabled={disabled || !model || !device || !!active} onClick={deploy}>Nạp model vào thiết bị</button>{pending && ['queued','downloading'].includes(pending.status) ? <button type="button" className="secondary" disabled={disabled} onClick={cancel}>Hủy lệnh đang chờ</button> : null}</div> : null}
     {pending ? <p className={`model-current status-${pending.status}`} role="status">Lệnh hiện tại: <strong>{labels[pending.status] || pending.status}</strong> · {pending.name} · v{pending.version}{pending.error ? ` · ${errorLabels[pending.error] || pending.error}` : ''}</p> : null}
-    {device?.heartbeat?.fpga ? <p className="model-note">FPGA tại heartbeat cuối: SPI {device.heartbeat.fpga.spi_ready ? 'sẵn sàng' : 'chưa kết nối'}, model {device.heartbeat.fpga.model_valid ? 'hợp lệ' : 'chưa hợp lệ'}, version {device.heartbeat.fpga.active_version}, RUN_ENABLE {device.heartbeat.fpga.run_enabled ? '1' : '0'}.</p> : null}
+    {device?.heartbeat?.fpga ? <p className="model-note">Lõi IDS tại heartbeat cuối: SPI {device.heartbeat.fpga.spi_ready ? 'sẵn sàng' : 'chưa kết nối'}, model {device.heartbeat.fpga.model_valid ? 'hợp lệ' : 'chưa hợp lệ'}, version {device.heartbeat.fpga.active_version}, RUN_ENABLE {device.heartbeat.fpga.run_enabled ? '1' : '0'}.</p> : null}
     {message ? <p className="model-feedback" role="status">{message}</p> : null}{error ? <p className="model-feedback error" role="alert">{error}</p> : null}
     {device ? <CommandHistory key={device.id} orgId={orgId} deviceId={device.id}/> : null}
   </section>;

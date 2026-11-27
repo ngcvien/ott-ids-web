@@ -4,8 +4,8 @@ export function classificationDetails(classId) {
 }
 
 export function actionDetails(action) {
-  if (action === 'drop') return { label: 'Drop · FPGA báo chặn', tone: 'drop',
-    description: 'Bản ghi từ FPGA có hành động Drop. Đây là hành động được thiết bị báo tại sự kiện này, không phải lệnh chặn do web gửi.' };
+  if (action === 'drop') return { label: 'Drop · Lõi IDS báo chặn', tone: 'drop',
+    description: 'Bản ghi từ lõi xử lý có hành động Drop. Đây là hành động được thiết bị báo tại sự kiện này, không phải lệnh chặn do web gửi.' };
   if (action === 'monitor') return { label: 'Monitor · Ghi nhận', tone: 'monitor',
     description: 'Sự kiện được ghi nhận ở chế độ Monitor. Phân loại tấn công không đồng nghĩa gói tin đã bị chặn.' };
   return { label: 'Chưa xác định', tone: 'unknown', description: 'Bản ghi chưa có hành động hợp lệ để kết luận Monitor hay Drop.' };

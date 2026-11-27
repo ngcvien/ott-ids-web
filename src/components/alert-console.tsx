@@ -35,7 +35,7 @@ function Brand() {
   return <a href="/" className="brand" aria-label="OTT-IDS — trang chủ"><span className="brand-mark"><Icon name="shield"/></span><span>OTT<span className="brand-accent">-IDS</span><small>NETWORK SECURITY PLATFORM</small></span></a>;
 }
 function NetworkIllustration() {
-  return <div className="network-visual" aria-hidden="true"><div className="network-grid"/><svg viewBox="0 0 560 190" className="network-lines"><path d="M94 95H280M280 95H466"/><path className="signal-path" d="M94 95H280M280 95H466"/><circle cx="185" cy="95" r="4"/><circle cx="375" cy="95" r="4"/></svg><div className="network-nodes"><div className="network-node"><span><Icon name="devices"/></span><strong>Thiết bị</strong><small>FPGA · ESP32</small></div><div className="network-node central"><span><Icon name="shield"/></span><strong>OTT-IDS</strong><small>Tiếp nhận & xác thực</small></div><div className="network-node"><span><Icon name="activity"/></span><strong>Giám sát</strong><small>Cảnh báo thời gian thực</small></div></div></div>;
+  return <div className="network-visual" aria-hidden="true"><div className="network-grid"/><svg viewBox="0 0 560 190" className="network-lines"><path d="M94 95H280M280 95H466"/><path className="signal-path" d="M94 95H280M280 95H466"/><circle cx="185" cy="95" r="4"/><circle cx="375" cy="95" r="4"/></svg><div className="network-nodes"><div className="network-node"><span><Icon name="devices"/></span><strong>Thiết bị</strong><small>Lõi IDS · ESP32</small></div><div className="network-node central"><span><Icon name="shield"/></span><strong>OTT-IDS</strong><small>Tiếp nhận & xác thực</small></div><div className="network-node"><span><Icon name="activity"/></span><strong>Giám sát</strong><small>Cảnh báo thời gian thực</small></div></div></div>;
 }
 
 function dataError(code?: string) {
@@ -184,7 +184,7 @@ function Alerts({ orgId, deviceId, user }: { orgId: string; deviceId: string; us
   async function clearVisibleAlerts() {
     const ids = visibleAlerts.map(alert => alert.id);
     if (!canClear || clearing || !ids.length) return;
-    if (!window.confirm(`Xóa vĩnh viễn ${ids.length} cảnh báo đang hiển thị của ${deviceId}?\n\nCảnh báo mới và dữ liệu ngoài danh sách này được giữ lại. Không thay đổi FPGA hoặc chế độ chặn.`)) return;
+    if (!window.confirm(`Xóa vĩnh viễn ${ids.length} cảnh báo đang hiển thị của ${deviceId}?\n\nCảnh báo mới và dữ liệu ngoài danh sách này được giữ lại. Không thay đổi lõi xử lý hoặc chế độ chặn.`)) return;
     setClearing(true); setClearError(''); setClearMessage('');
     try {
       const token = await user.getIdToken();

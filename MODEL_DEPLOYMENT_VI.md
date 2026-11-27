@@ -1,8 +1,8 @@
-# Nạp model từ web vào FPGA
+# Nạp model từ web vào lõi IDS
 
 ## Upload trực tiếp .mem
 
-Đăng nhập owner → Thiết bị → Nạp model vào FPGA. Chọn file `.mem`, nhập tên và
+Đăng nhập owner → Thiết bị → Nạp model vào lõi IDS. Chọn file `.mem`, nhập tên và
 **Version · ABI 1** (ví dụ `0x02000002` hoặc `33554434`), bấm **Kiểm tra và lưu model**.
 Server đọc mỗi dòng một word hex 16 ký tự (1–127 node), tự tính CRC32/SHA-256 và
 đóng gói nội bộ; không cần chuyển file bằng terminal. Hỗ trợ dòng trống, BOM, CRLF
@@ -16,7 +16,7 @@ phân quyền và ràng buộc version: cùng nội dung/version là trùng; kh�
 1. Trong `web`, commit/push bản web mới để Vercel deploy. Không đổi Firebase env hoặc device key.
 2. Deploy Firestore Rules mới: `npm run firebase:rules -- --project ott-ids` (đăng nhập Firebase CLI nếu cần). Rules cho phép thành viên đọc models/modelCommands, nhưng mọi ghi vẫn chỉ qua API server.
 3. Nạp lại sketch ESP32 với firmware **ott-ids-1.2.0**, giữ nguyên Wi-Fi/key, DIO 16 MB/OPI PSRAM và partition hiện có. Không erase/format flash. Upload firmware không tự tải hay nạp model từ cloud.
-4. Đăng nhập owner, mở **Thiết bị** (`/dashboard/devices`). Trong phần **Nạp model vào FPGA**, tải gói mẫu hoặc gói tự đóng, chọn tên và bấm **Kiểm tra và lưu model**.
+4. Đăng nhập owner, mở **Thiết bị** (`/dashboard/devices`). Trong phần **Nạp model vào lõi IDS**, tải gói mẫu hoặc gói tự đóng, chọn tên và bấm **Kiểm tra và lưu model**.
 5. Chọn model và đúng thiết bị, bấm **Nạp model vào thiết bị**, đọc xác nhận rồi thực hiện. Khi online, ESP nhận ở kỳ heartbeat tiếp theo (60–65 giây); mỗi bước mạng còn có nhịp xử lý/retry 15 giây. Chờ lịch sử báo thành công, không coi trạng thái `loading` là thành công.
 6. Kiểm tra log SPI/version và heartbeat FPGA. `RUN_ENABLE` vẫn **0**. Nếu cần enforcement, người vận hành chủ động gửi lệnh Serial `1` sau khi kiểm tra; web không tự bật lại.
 

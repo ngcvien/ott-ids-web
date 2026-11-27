@@ -1,5 +1,12 @@
 # OTT-IDS Alerts
 
+## Thuật ngữ giao diện
+
+Web dùng **lõi xử lý IDS / lõi IDS** để giới thiệu định hướng vi mạch của dự án.
+FPGA là nền tảng kiểm thử hiện tại, được giữ trong tài liệu kỹ thuật. Các tên trường
+`fpga`, mã lỗi `fpga_not_ready`/`fpga_load_failed` và giao thức ESP vẫn giữ nguyên
+để tương thích dữ liệu, được ánh xạ sang nhãn lõi xử lý trên giao diện.
+
 ## Nạp model FPGA từ xa
 
 Đã có upload model ABI 1, kiểm tra CRC/SHA, phát lệnh theo thiết bị và lịch sử kết quả

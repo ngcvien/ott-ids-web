@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import styles from './landing-page.module.css';
 
 const stages = [
-  { title: 'Nhận diện tại FPGA.', label: 'PHÁT HIỆN', text: 'FPGA phân loại lưu lượng mạng và đưa sự kiện vào hàng đợi cảnh báo. Bắt đầu từ nơi dữ liệu đi qua.', tag: 'FPGA · Phân loại lưu lượng' },
+  { title: 'Nhận diện tại lõi IDS.', label: 'PHÁT HIỆN', text: 'Lõi xử lý IDS phân loại lưu lượng mạng và đưa sự kiện vào hàng đợi cảnh báo. Bắt đầu từ nơi dữ liệu đi qua.', tag: 'Lõi IDS · Phân loại lưu lượng' },
   { title: 'Kết nối không dây.', label: 'TRUYỀN DỮ LIỆU', text: 'ESP32 nhận cảnh báo, lưu vào outbox bền vững và gửi qua Wi-Fi bằng HTTPS. Khi mất mạng, bản ghi chờ để gửi lại.', tag: 'ESP32 · Wi-Fi · HTTPS' },
   { title: 'Hiển thị tức thời.', label: 'QUAN SÁT', text: 'Cảnh báo đã lưu đồng bộ lên dashboard qua Firestore. Đăng nhập để theo dõi các thiết bị được cấp quyền trong nhóm của bạn.', tag: 'Cloud · Realtime dashboard' },
 ];
@@ -26,7 +26,7 @@ function NetworkCore() {
       {[[95,185],[310,92],[526,185],[525,433],[310,529],[95,433],[310,310]].map(([cx,cy], i) => <g key={i}><circle cx={cx} cy={cy} r="12" fill="#9bf6ce" fillOpacity=".08"/><circle cx={cx} cy={cy} r="3" fill="#b7ffdb"/></g>)}
     </svg>
     <div className={styles.coreChip}><div className={styles.chipPins}/><Shield/><span>OTT<span>IDS</span></span><small>NETWORK INTELLIGENCE</small></div>
-    <div className={`${styles.coreLabel} ${styles.labelTop}`}><span/> FPGA ENGINE</div>
+    <div className={`${styles.coreLabel} ${styles.labelTop}`}><span/> IDS PROCESSOR</div>
     <div className={`${styles.coreLabel} ${styles.labelBottom}`}>ENCRYPTED UPLINK <span/></div>
   </div>;
 }
@@ -73,14 +73,14 @@ export function LandingPage() {
     </header>
     <main id="main">
       <section className={styles.hero} data-hero-section>
-        <div className={styles.heroCopy}><p className={styles.kicker} data-hero><span/> NETWORK SECURITY, CONNECTED.</p><h1 data-hero>Nhìn thấu<br/>mối đe dọa.<br/><span>Chủ động bảo vệ.</span></h1><p className={styles.heroDescription} data-hero>Từ sức mạnh phần cứng đến khả năng quan sát trên cloud. OTT-IDS kết nối FPGA, ESP32 và dashboard trong một luồng cảnh báo liền mạch.</p><div className={styles.heroActions} data-hero><Link className={styles.primaryButton} href="/dashboard">Mở trung tâm giám sát</Link><a className={styles.textLink} href="#system">Khám phá hệ thống</a></div><div className={styles.heroFootnote} data-hero><span>FPGA Detection</span><i/><span>Wireless Connectivity</span><i/><span>Realtime Alerts</span></div></div>
+        <div className={styles.heroCopy}><p className={styles.kicker} data-hero><span/> NETWORK SECURITY, CONNECTED.</p><h1 data-hero>Nhìn thấu<br/>mối đe dọa.<br/><span>Chủ động bảo vệ.</span></h1><p className={styles.heroDescription} data-hero>Từ sức mạnh phần cứng đến khả năng quan sát trên cloud. OTT-IDS hướng đến thiết kế vi mạch bảo mật, kết nối lõi xử lý IDS, ESP32 và dashboard trong một luồng cảnh báo liền mạch.</p><div className={styles.heroActions} data-hero><Link className={styles.primaryButton} href="/dashboard">Mở trung tâm giám sát</Link><a className={styles.textLink} href="#system">Khám phá hệ thống</a></div><div className={styles.heroFootnote} data-hero><span>Hardware Detection</span><i/><span>Wireless Connectivity</span><i/><span>Realtime Alerts</span></div></div>
         <div className={styles.heroVisual} data-core><NetworkCore/></div>
         <div className={styles.heroBottom}><span>THIẾT KẾ CHO KHẢ NĂNG QUAN SÁT</span><a href="#platform">Cuộn để khám phá</a></div>
       </section>
       <section id="platform" className={styles.platform}>
         <div className={styles.sectionHeading} data-reveal><p className={styles.kicker}>TỪ THIẾT BỊ ĐẾN TẦM NHÌN TỔNG THỂ</p><h2>Mạng vẫn chuyển động.<br/><span>Bạn luôn nắm bắt.</span></h2><p>Đưa tín hiệu từ phần cứng thành thông tin rõ ràng. Một nơi để nhận biết tấn công, theo dõi sự kiện và quản lý lịch sử cảnh báo.</p></div>
         <div className={styles.featureGrid}>
-          <article data-reveal><div className={styles.featureVisual}><div className={styles.waveform}>{Array.from({ length: 37 }, (_,i) => <span key={i} style={{ height: `${15 + ((i*37)%75)}%` }}/>)}</div><span className={styles.visualCaption}>TRAFFIC → CLASSIFICATION</span></div><h3>Phân loại từ phần cứng</h3><p>FPGA xử lý phân loại. ESP32 tiếp nhận bản ghi để đưa cảnh báo đến hệ thống giám sát.</p></article>
+          <article data-reveal><div className={styles.featureVisual}><div className={styles.waveform}>{Array.from({ length: 37 }, (_,i) => <span key={i} style={{ height: `${15 + ((i*37)%75)}%` }}/>)}</div><span className={styles.visualCaption}>TRAFFIC → CLASSIFICATION</span></div><h3>Phân loại từ phần cứng</h3><p>Lõi IDS xử lý phân loại. ESP32 tiếp nhận bản ghi để đưa cảnh báo đến hệ thống giám sát.</p></article>
           <article data-reveal><div className={styles.featureVisual}><div className={styles.signalRings}><span/><span/><span/><b>Wi-Fi</b></div><span className={styles.visualCaption}>LOCAL OUTBOX · HTTPS</span></div><h3>Kết nối có khả năng phục hồi</h3><p>Outbox trên ESP32 giữ bản ghi khi mất kết nối, gửi lại khi mạng sẵn sàng và chống trùng tại server.</p></article>
           <article data-reveal><div className={styles.featureVisual}><div className={styles.miniAlert}><Shield/><span>Tấn công <small>Class 1 · Cảnh báo</small></span><b>!</b></div><span className={styles.visualCaption}>MINH HỌA GIAO DIỆN</span></div><h3>Điểm nóng được làm nổi bật</h3><p>Class 1 có nhãn đỏ và hiệu ứng chú ý khi nhận mới, giúp bạn nhận ra sự kiện cần xem xét.</p></article>
         </div>
@@ -95,6 +95,6 @@ export function LandingPage() {
       </section>
       <section className={styles.cta} data-reveal><div className={styles.ctaHalo}/><Shield/><p className={styles.kicker}>OTT-IDS · NETWORK INTELLIGENCE</p><h2>Mỗi tín hiệu.<br/>Một góc nhìn rõ hơn.</h2><p>Kết nối với hệ thống của bạn và bắt đầu theo dõi cảnh báo.</p><Link href="/dashboard" className={styles.primaryButton}>Vào trung tâm giám sát</Link></section>
     </main>
-    <footer className={styles.footer}><Link className={styles.logo} href="/">OTT<span>-IDS</span></Link><span>FPGA × ESP32 × CLOUD</span><a href="#main">Về đầu trang</a></footer>
+    <footer className={styles.footer}><Link className={styles.logo} href="/">OTT<span>-IDS</span></Link><span>IDS CORE × ESP32 × CLOUD</span><a href="#main">Về đầu trang</a></footer>
   </div>;
 }
