@@ -32,5 +32,9 @@ export function alertDetailExport(alert, orgId, deviceId) {
   const data = { organization_id: orgId, device_id: deviceId, alert_id: alert.id };
   for (const field of fields) if (alert[field] !== undefined) data[field] = alert[field];
   data.received_at = alert.received_at?.toDate?.().toISOString() ?? null;
+  if (alert.demo_source_id) {
+    data.received_at = alert.demo_original_received_at?.toDate?.().toISOString() ?? null;
+    data.demo = { simulated: true, source_alert_id: alert.demo_source_id, displayed_at: alert.received_at?.toDate?.().toISOString() ?? null };
+  }
   return data;
 }

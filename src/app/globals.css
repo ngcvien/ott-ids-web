@@ -20,6 +20,7 @@ select{appearance:none;padding-right:36px;background-image:url("data:image/svg+x
 @media(max-width:560px){.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stats article{padding:16px 13px}.stat-heading{font-size:11px;gap:5px}.stats strong{font-size:29px}.stats .connection{font-size:14px;min-height:38px}.stats small{font-size:10px}.toolbar{flex-direction:column;align-items:stretch}.device-picker,.device-picker select{width:100%;max-width:none}.table-footer{font-size:11px}}
 @media(max-width:360px){.stats{grid-template-columns:1fr}}
 .class-tag.attack-tag{background:#49212b;border-color:#a34b5a;color:#ffc0c6;font-weight:600}
+.attack-screen-flash.replay-flash{animation-name:replay-attention}@keyframes replay-attention{0%{opacity:1}100%{opacity:0}}
 .alert-interactive-row{cursor:pointer}.alert-interactive-row:focus-within{background:#21364a}
 @media(max-width:560px){
   .signed-out input,.signed-out select,.workspace input,.workspace select{font-size:16px;min-height:46px}

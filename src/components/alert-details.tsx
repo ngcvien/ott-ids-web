@@ -7,13 +7,13 @@ import type { AlertRecord } from '@/lib/alert-types';
 import { actionDetails, alertDetailExport, classificationDetails, modelHex, protocolLabel, transportPort } from '@/lib/alert-details.mjs';
 import styles from './alert-details.module.css';
 
-export function AlertDetails({ orgId, deviceId, alertId, onClose }: {
-  orgId: string; deviceId: string; alertId: string; onClose: () => void;
+export function AlertDetails({ orgId, deviceId, alertId, onClose, demoRecord }: {
+  orgId: string; deviceId: string; alertId: string; onClose: () => void; demoRecord?: AlertRecord;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
-  const [record, setRecord] = useState<AlertRecord | null>(null);
+  const [storedRecord, setRecord] = useState<AlertRecord | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [cached, setCached] = useState(true);
   const [error, setError] = useState('');
@@ -30,6 +30,11 @@ export function AlertDetails({ orgId, deviceId, alertId, onClose }: {
   }, []);
 
   useEffect(() => {
+    if (demoRecord) {
+      setRecord(demoRecord); setLoaded(true); setCached(false); setError(''); setCopied('');
+      copyVersion.current++;
+      return () => { copyVersion.current++; };
+    }
     let active = true;
     const unsubscribe = onSnapshot(doc(firebaseClient().db, 'organizations', orgId, 'devices', deviceId, 'alerts', alertId), { includeMetadataChanges: true }, snapshot => {
       if (!active) return;
@@ -41,7 +46,7 @@ export function AlertDetails({ orgId, deviceId, alertId, onClose }: {
       setError(failure.code === 'permission-denied' ? 'Bạn không còn quyền xem cảnh báo này.' : 'Không thể tải chi tiết. Đóng khung và thử lại sau khi kiểm tra kết nối.');
     });
     return () => { active = false; copyVersion.current++; unsubscribe(); };
-  }, [orgId, deviceId, alertId]);
+  }, [orgId, deviceId, alertId, demoRecord]);
 
   async function copyRecord() {
     if (!record) return;
@@ -54,6 +59,8 @@ export function AlertDetails({ orgId, deviceId, alertId, onClose }: {
     }
   }
 
+  const record = storedRecord?.demo_source_id ? { ...storedRecord, id: storedRecord.demo_source_id,
+    received_at: storedRecord.demo_original_received_at, demo_source_id: undefined, demo_original_received_at: undefined } : storedRecord;
   const classification = classificationDetails(record?.class_id);
   const action = actionDetails(record?.action);
   return <dialog ref={dialog} className={styles.dialog} aria-labelledby={titleId} aria-describedby={descriptionId} onClose={onClose}>
@@ -61,10 +68,11 @@ export function AlertDetails({ orgId, deviceId, alertId, onClose }: {
     <div className={styles.content}><p id={descriptionId} className={styles.context}>Thiết bị <strong>{deviceId}</strong><span>Nhóm {orgId}</span></p>
       {!loaded ? <p role="status" className={styles.state}>Đang tải chi tiết cảnh báo…</p> : error ? <p role="alert" className={styles.warning}>{error}</p> : !record ? <div className={styles.state} role="status"><h3>{cached ? 'Chưa tải được bản ghi từ server' : 'Cảnh báo không còn tồn tại'}</h3><p>{cached ? 'Đang chờ kết nối để kiểm tra cảnh báo này.' : 'Cảnh báo có thể đã được xóa. Đóng khung để quay lại danh sách.'}</p></div> : <>
         {cached ? <p className={styles.cacheNotice} role="status">Đang xem dữ liệu lưu đệm; chờ server để xác nhận bản ghi hiện tại.</p> : null}
+
         <section className={`${styles.verdict} ${classification.attack ? styles.attack : ''}`} aria-label="Phân loại và hành động"><div><span className={styles.verdictLabel}>PHÂN LOẠI TỪ LÕI IDS</span><h3>{classification.label}</h3></div><span className={`${styles.actionBadge} ${action.tone === 'drop' ? styles.drop : ''}`}>{action.label}</span><p>{action.description}</p></section>
         {record.tree_error !== undefined && record.tree_error !== 0 ? <p className={styles.warning} role="status">Lõi IDS báo mã lỗi cây <strong>{record.tree_error}</strong> trong sự kiện này. Cần kiểm tra thông tin model và log thiết bị trước khi đánh giá kết quả phân loại.</p> : null}
         <section className={styles.section} aria-labelledby={`${titleId}-network`}><h3 id={`${titleId}-network`}>Kết nối được ghi nhận</h3><div className={styles.endpoints}><div><span>NGUỒN</span><strong>{record.src_ip ?? '—'}</strong><p>Cổng <b>{transportPort(record.protocol, record.src_port)}</b></p></div><div className={styles.protocol}>{protocolLabel(record.protocol)}<span>Protocol {record.protocol ?? '—'}</span></div><div><span>ĐÍCH</span><strong>{record.dst_ip ?? '—'}</strong><p>Cổng <b>{transportPort(record.protocol, record.dst_port)}</b></p></div></div></section>
-        <section className={styles.section} aria-labelledby={`${titleId}-event`}><h3 id={`${titleId}-event`}>Thời gian và định danh</h3><dl className={styles.fields}><div><dt>Server nhận lúc</dt><dd>{record.received_at?.toDate ? record.received_at.toDate().toLocaleString('vi-VN') : '—'}</dd></div><div><dt>Timestamp lõi xử lý (ms)</dt><dd>{record.timestamp_ms ?? '—'}</dd></div><div><dt>Event ID</dt><dd className={styles.mono}>{record.event_id ?? '—'}</dd></div><div><dt>Cổng ingress (mã thô)</dt><dd>{record.ingress_port ?? '—'}</dd></div><div className={styles.wide}><dt>Phiên sự kiện · Boot ID</dt><dd className={styles.mono}>{record.boot_id ?? '—'}</dd></div><div className={styles.wide}><dt>Mã cảnh báo trên server</dt><dd className={styles.mono}>{alertId}</dd></div></dl><p className={styles.note}>Timestamp lõi xử lý là bộ đếm thời gian của lõi xử lý, không phải ngày giờ thực. Sự kiện gửi bù có thể được server nhận muộn; không dùng hai giá trị này để suy ra độ trễ mạng. Boot ID là phiên định danh sự kiện, không nhất thiết là một lần ESP khởi động.</p></section>
+        <section className={styles.section} aria-labelledby={`${titleId}-event`}><h3 id={`${titleId}-event`}>Thời gian và định danh</h3><dl className={styles.fields}><div><dt>Server nhận lúc</dt><dd>{record.received_at?.toDate ? record.received_at.toDate().toLocaleString('vi-VN') : '—'}</dd></div><div><dt>Timestamp lõi xử lý (ms)</dt><dd>{record.timestamp_ms ?? '—'}</dd></div><div><dt>Event ID</dt><dd className={styles.mono}>{record.event_id ?? '—'}</dd></div><div><dt>Cổng ingress (mã thô)</dt><dd>{record.ingress_port ?? '—'}</dd></div><div className={styles.wide}><dt>Phiên sự kiện · Boot ID</dt><dd className={styles.mono}>{record.boot_id ?? '—'}</dd></div><div className={styles.wide}><dt>Mã cảnh báo trên server</dt><dd className={styles.mono}>{record.id}</dd></div></dl><p className={styles.note}>Timestamp lõi xử lý là bộ đếm thời gian của lõi xử lý, không phải ngày giờ thực. Sự kiện gửi bù có thể được server nhận muộn; không dùng hai giá trị này để suy ra độ trễ mạng. Boot ID là phiên định danh sự kiện, không nhất thiết là một lần ESP khởi động.</p></section>
         <section className={styles.section} aria-labelledby={`${titleId}-model`}><h3 id={`${titleId}-model`}>Model và chẩn đoán lõi IDS</h3><dl className={styles.fields}><div><dt>Model version</dt><dd>{record.model_version ?? '—'} <span className={styles.hex}>{modelHex(record.model_version)}</span></dd></div><div><dt>Mã lỗi cây</dt><dd>{record.tree_error === 0 ? '0 · Không báo lỗi' : record.tree_error ?? '—'}</dd></div><div><dt>Số bước cây</dt><dd>{record.tree_steps ?? '—'}</dd></div><div><dt>Độ trễ xử lý (chu kỳ)</dt><dd>{record.latency_cycles ?? '—'}</dd></div></dl><p className={styles.note}>Độ trễ tính theo chu kỳ phần cứng được ghi trong sự kiện, không phải thời gian gửi HTTPS. Trang này chỉ đọc bản ghi; không gửi lệnh chặn hoặc thay đổi model.</p></section>
         <details className={styles.json}><summary>Dữ liệu kỹ thuật · JSON</summary><button type="button" onClick={copyRecord} className={styles.copy}>Sao chép JSON</button><p role="status">{copied}</p><pre tabIndex={0} aria-label="JSON cảnh báo">{JSON.stringify(alertDetailExport(record, orgId, deviceId), null, 2)}</pre></details>
       </>}
