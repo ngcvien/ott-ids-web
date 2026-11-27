@@ -1,5 +1,28 @@
 # OTT-IDS Alerts
 
+## Chi tiết cảnh báo
+
+Bấm một dòng trên dashboard để mở inspector (bàn phím: Tab đến dòng, Enter hoặc Space). Desktop hiển thị
+dialog; điện thoại dùng toàn màn hình. Có nút Đóng/Quay lại và hỗ trợ Escape, điều
+hướng bằng bàn phím; trang phía sau không thao tác được khi đang mở.
+
+Inspector theo dõi riêng document đã chọn bằng Firestore listener, trong quyền đọc
+owner/viewer hiện có. Cảnh báo mới đẩy bản ghi khỏi 100 dòng vẫn xem được chi tiết;
+khi bản ghi bị xóa hoặc mất quyền, nội dung cũ được bỏ và hiển thị trạng thái tương ứng.
+Dữ liệu cache được ghi rõ. Listener dừng khi đóng, đổi thiết bị hoặc đăng xuất.
+
+Thông tin gồm Class/hành động, IP/cổng nguồn-đích, protocol, thời gian server nhận,
+timestamp FPGA, Event ID, Boot ID, mã document, ingress, model version (decimal/hex),
+tree error/steps và latency cycles. Class 1 là tấn công, Monitor không đồng nghĩa
+đã chặn; Drop chỉ phản ánh hành động FPGA báo trong bản ghi. Không suy diễn tên hoặc
+ý nghĩa cho Class khác, mã cổng hay mã lỗi cây. Timestamp FPGA không phải Unix time,
+latency cycles không phải độ trễ mạng. Event ID giữ nguyên chuỗi uint64.
+
+Mục JSON cho phép sao chép các trường cảnh báo đã chọn lọc, không kèm hash chống
+trùng hoặc field nội bộ. Mở chi tiết có thêm lượt đọc document; không cần API,
+Firestore Rules, cấu hình Firebase hoặc firmware mới. Kiểm tra `npm run test:details`
+và `npm run build` trước khi đẩy bản web mới.
+
 ## Runtime Firebase Admin trên Vercel
 
 Giữ Firebase Admin 14.5.1. Override riêng `jwks-rsa → jose` sang **5.10.0** trong

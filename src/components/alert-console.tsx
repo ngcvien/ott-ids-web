@@ -1,19 +1,17 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
-import { collection, doc, limit, onSnapshot, orderBy, query, type Timestamp } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import Link from 'next/link';
+import { AlertDetails } from '@/components/alert-details';
+import type { AlertRecord } from '@/lib/alert-types';
 import { DeviceFleet, type DeviceSummary } from '@/components/device-fleet';
 import { firebaseClient } from '@/lib/firebase';
 import { createAttackDetector } from '@/lib/attack-detector.mjs';
 
 type Choice = { id: string; name: string };
-type Alert = {
-  id: string; received_at?: Timestamp; class_id?: number; action?: string;
-  src_ip?: string; dst_ip?: string; src_port?: number; dst_port?: number;
-  protocol?: number; event_id?: string; model_version?: number;
-};
+type Alert = AlertRecord;
 
 type IconName = 'shield' | 'activity' | 'devices' | 'grid' | 'logout' | 'lock' | 'search' | 'eye' | 'eye-off' | 'check' | 'flow';
 function Icon({ name, className = '' }: { name: IconName; className?: string }) {
@@ -158,6 +156,8 @@ function Alerts({ orgId, deviceId, user }: { orgId: string; deviceId: string; us
   const [clearError, setClearError] = useState('');
   const [flash, setFlash] = useState(false);
   const [attackMessage, setAttackMessage] = useState('');
+  const [selectedAlertId, setSelectedAlertId] = useState('');
+  const closeDetails = useCallback(() => setSelectedAlertId(''), []);
   useEffect(() => onSnapshot(doc(firebaseClient().db, 'organizations', orgId, 'members', user.uid), snapshot => {
     setCanClear(snapshot.data()?.role === 'owner');
   }, () => setCanClear(false)), [orgId, user.uid]);
@@ -198,14 +198,23 @@ function Alerts({ orgId, deviceId, user }: { orgId: string; deviceId: string; us
     } finally { setClearing(false); }
   }
   return <>
+    {selectedAlertId ? <AlertDetails key={selectedAlertId} orgId={orgId} deviceId={deviceId} alertId={selectedAlertId} onClose={closeDetails} /> : null}
     {flash ? <div className="attack-screen-flash" aria-hidden="true"/> : null}
     {attackMessage ? <p className="new-attack-message" role="status">{attackMessage}</p> : null}
     <section className="stats" aria-label="Thống kê 100 cảnh báo mới nhất"><article><div className="stat-heading"><span>Cảnh báo đã tải</span><Icon name="activity"/></div><strong>{loaded && !error ? alerts.length.toLocaleString('vi-VN') : '—'}</strong><small>Trong 100 sự kiện gần nhất</small></article><article><div className="stat-heading"><span>Tấn công · Class 1</span><Icon name="shield"/></div><strong className="danger">{loaded && !error ? attacks.toLocaleString('vi-VN') : '—'}</strong><small>Phân loại tấn công từ thiết bị</small></article><article><div className="stat-heading"><span>Chế độ monitor</span><Icon name="eye"/></div><strong>{loaded && !error ? alerts.filter(alert => alert.action === 'monitor').length.toLocaleString('vi-VN') : '—'}</strong><small>Ghi nhận và theo dõi sự kiện</small></article><article className="connection-card"><div className="stat-heading"><span>Đồng bộ dữ liệu</span><Icon name="flow"/></div><strong className={`connection ${error ? 'danger' : ''}`}>{error ? 'Có lỗi kết nối' : !loaded ? 'Đang kết nối' : cached ? 'Chờ đồng bộ' : 'Đang cập nhật'}</strong><small>Trạng thái kết nối dashboard</small></article></section>
     <section className="alerts-panel" id="alerts"><div className="panel-heading"><div><p className="eyebrow">EVENT STREAM</p><h2>Nhật ký cảnh báo</h2></div><span className="device-chip"><Icon name="devices"/>{deviceId}</span></div><div className="table-tools"><label className="search-field"><Icon name="search"/><span className="sr-only">Tìm trong 100 cảnh báo đã tải</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Tìm IP, cổng, loại cảnh báo…"/></label><label className="action-picker"><span className="sr-only">Lọc hành động</span><select value={actionFilter} onChange={event => setActionFilter(event.target.value)}><option value="all">Tất cả hành động</option><option value="monitor">Monitor</option><option value="drop">Drop</option></select></label>{canClear ? <button type="button" className="clear-alerts-button" disabled={clearing || cached || !loaded || !visibleAlerts.length} onClick={clearVisibleAlerts}>{clearing ? 'Đang xóa…' : `Xóa cảnh báo (${visibleAlerts.length})`}</button> : null}</div>
       {clearMessage ? <p className="clear-feedback" role="status">{clearMessage}</p> : null}
       {clearError ? <p className="clear-feedback error" role="alert">{clearError}</p> : null}
-      {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p className="empty" role="status">Đang tải cảnh báo…</p> : !alerts.length ? <div className="empty"><span className="empty-icon"><Icon name="shield"/></span><h3>Chưa ghi nhận cảnh báo</h3><p>Các sự kiện mới từ thiết bị sẽ tự động hiển thị tại đây.</p><small>Đang theo dõi nguồn {deviceId}</small></div> : !visibleAlerts.length ? <div className="empty"><Icon name="search"/><h3>Không tìm thấy sự kiện phù hợp</h3><p>Thử thay đổi từ khóa hoặc bộ lọc hành động.</p><button className="secondary" onClick={() => { setSearch(''); setActionFilter('all'); }}>Xóa bộ lọc</button></div> : <div className="table-scroll"><table><thead><tr><th>Thời gian nhận</th><th>Phân loại</th><th>Địa chỉ nguồn</th><th>Địa chỉ đích</th><th>Giao thức</th><th>Hành động</th></tr></thead><tbody>{visibleAlerts.map(alert => <tr key={alert.id} className={alert.class_id === 1 ? 'attack-row' : undefined}><td className="time-cell">{alert.received_at?.toDate ? <><strong>{alert.received_at.toDate().toLocaleTimeString('vi-VN')}</strong><span>{alert.received_at.toDate().toLocaleDateString('vi-VN')}</span></> : '—'}</td><td><span className={alert.class_id === 1 ? 'class-tag attack-tag' : 'class-tag'}>{alert.class_id === 1 ? 'Tấn công · Class 1' : `Class ${alert.class_id ?? '—'}`}</span></td><td className="mono">{alert.src_ip ?? '—'}<span className="port">:{alert.src_port ?? 0}</span></td><td className="mono">{alert.dst_ip ?? '—'}<span className="port">:{alert.dst_port ?? 0}</span></td><td><span className="protocol-tag">{alert.protocol === 6 ? 'TCP' : alert.protocol === 17 ? 'UDP' : alert.protocol ?? '—'}</span></td><td><span className={alert.action === 'drop' ? 'badge drop' : 'badge'}><span/>{alert.action ?? '—'}</span></td></tr>)}</tbody></table></div>}
-      <div className="table-footer"><span role="status">Hiển thị {visibleAlerts.length} / {alerts.length} cảnh báo đã tải</span><span>Giới hạn 100 sự kiện mới nhất</span></div>
+      {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p className="empty" role="status">Đang tải cảnh báo…</p> : !alerts.length ? <div className="empty"><span className="empty-icon"><Icon name="shield"/></span><h3>Chưa ghi nhận cảnh báo</h3><p>Các sự kiện mới từ thiết bị sẽ tự động hiển thị tại đây.</p><small>Đang theo dõi nguồn {deviceId}</small></div> : !visibleAlerts.length ? <div className="empty"><Icon name="search"/><h3>Không tìm thấy sự kiện phù hợp</h3><p>Thử thay đổi từ khóa hoặc bộ lọc hành động.</p><button className="secondary" onClick={() => { setSearch(''); setActionFilter('all'); }}>Xóa bộ lọc</button></div> : <div className="table-scroll"><table><thead><tr><th>Thời gian nhận</th><th>Phân loại</th><th>Địa chỉ nguồn</th><th>Địa chỉ đích</th><th>Giao thức</th><th>Hành động</th></tr></thead><tbody>{visibleAlerts.map(alert => <tr key={alert.id} className={`alert-interactive-row ${alert.class_id === 1 ? 'attack-row' : ''}`} tabIndex={0} aria-haspopup="dialog" onKeyDown={event => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault(); setSelectedAlertId(alert.id);
+        }
+      }} onClick={event => {
+        if ((event.target as HTMLElement).closest('button, a') || window.getSelection()?.toString()) return;
+        event.currentTarget.focus();
+        setSelectedAlertId(alert.id);
+      }}><td className="time-cell">{alert.received_at?.toDate ? <><strong>{alert.received_at.toDate().toLocaleTimeString('vi-VN')}</strong><span>{alert.received_at.toDate().toLocaleDateString('vi-VN')}</span></> : '—'}</td><td><span className={alert.class_id === 1 ? 'class-tag attack-tag' : 'class-tag'}>{alert.class_id === 1 ? 'Tấn công · Class 1' : `Class ${alert.class_id ?? '—'}`}</span></td><td className="mono">{alert.src_ip ?? '—'}<span className="port">:{alert.src_port ?? 0}</span></td><td className="mono">{alert.dst_ip ?? '—'}<span className="port">:{alert.dst_port ?? 0}</span></td><td><span className="protocol-tag">{alert.protocol === 6 ? 'TCP' : alert.protocol === 17 ? 'UDP' : alert.protocol ?? '—'}</span></td><td><span className={alert.action === 'drop' ? 'badge drop' : 'badge'}><span/>{alert.action ?? '—'}</span></td></tr>)}</tbody></table></div>}
+      <div className="table-footer"><span role="status">Hiển thị {visibleAlerts.length} / {alerts.length} cảnh báo đã tải</span><span>Bấm một dòng để xem chi tiết · 100 sự kiện mới nhất</span></div>
     </section>
   </>;
 }
