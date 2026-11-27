@@ -1,5 +1,24 @@
 # OTT-IDS Alerts
 
+## Runtime Firebase Admin trên Vercel
+
+Giữ Firebase Admin 14.5.1. Override riêng `jwks-rsa → jose` sang **5.10.0** trong
+`package.json` và commit cả `package-lock.json`. `jwks-rsa` 4.1.0 gọi `require('jose')`,
+trong khi jose 6 chỉ có ESM; Vercel mặc định tắt `require(ESM)`, khiến module Auth
+lỗi ngay lúc tải và làm cả API alerts/heartbeat trả 500 vì dùng chung module Admin.
+Override không thay Firebase SDK phía browser hoặc jose của Firebase CLI.
+
+`npm run build` tự chạy `test:runtime` trước khi build: tắt `require(ESM)` để kiểm tra
+việc nạp App/Firestore/Auth và xác minh chữ ký RSA bằng khóa sinh tại máy qua JWKS.
+Không sử dụng credential hay dịch vụ thật. Giữ kiểm thử này khi cập nhật dependency;
+chỉ bỏ override sau khi upstream tương thích và kiểm thử vẫn qua.
+Tham khảo [lỗi upstream](https://github.com/auth0/node-jwks-rsa/issues/507) và
+[cấu hình Node của Vercel](https://vercel.com/docs/functions/runtimes/node-js/advanced-node-configuration#experimental-nodejs-require-of-es-module).
+
+Khi deploy bản sửa, không cần đổi biến Firebase/device key hoặc nạp lại ESP.
+Sau khi Vercel Ready, POST không có device key tới `/api/device/heartbeat` phải trả
+401 JSON thay vì 500; ESP có key đúng tự thử lại vào kỳ heartbeat tiếp theo.
+
 ## Heartbeat và danh sách thiết bị
 
 - Mở `/dashboard/devices` hoặc mục **Thiết bị** sau khi đăng nhập. Dữ liệu cách ly theo membership hiện có; owner và viewer đều xem được, browser không được ghi telemetry.
