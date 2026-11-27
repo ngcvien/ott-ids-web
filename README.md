@@ -1,5 +1,19 @@
 # OTT-IDS Alerts
 
+## Heartbeat và danh sách thiết bị
+
+- Mở `/dashboard/devices` hoặc mục **Thiết bị** sau khi đăng nhập. Dữ liệu cách ly theo membership hiện có; owner và viewer đều xem được, browser không được ghi telemetry.
+- ESP32 gửi `POST /api/device/heartbeat` sau khi Wi-Fi/NTP sẵn sàng, sau đó mỗi 60 giây cộng jitter 0–5 giây. Dùng cùng `X-Device-ID` và `X-Device-Key` với API cảnh báo. URL heartbeat tự suy ra từ `OTT_API_URL`, không cần đổi cấu hình key/Wi-Fi.
+- Body gồm `firmware_version`, `uptime_ms`, `wifi_rssi_dbm`, `free_heap_bytes`, `outbox_pending`, `outbox_rejected`, `outbox_capacity`, `storage_ready`. Không nhận `orgId`, thời gian server hoặc trường lạ từ thiết bị.
+- Server xác thực registry và cập nhật `heartbeat` cùng `last_heartbeat_at` (server Timestamp) trên document `organizations/{orgId}/devices/{deviceId}`. Giữ nguyên name/location; không tạo alert hoặc lịch sử heartbeat. Request lặp trong 45 giây trả `accepted:true, updated:false`; kiểm tra key và trạng thái enabled trước khi giới hạn ghi. Đây là giới hạn ghi telemetry, không thay thế giới hạn request ở hạ tầng.
+- Online: heartbeat trong 90 giây; Chậm heartbeat: trên 90 đến 180 giây; Offline: trên 180 giây. Tính lại mỗi 10 giây ngay cả khi Firestore không gửi snapshot mới. Firmware cũ chưa có heartbeat hiện **Chưa có heartbeat**. Dữ liệu cache hiện **Chưa xác minh**. Đồng hồ máy xem web cần đúng giờ.
+- Đây là trạng thái ESP32 ↔ server, không chứng minh FPGA hoặc enforcement đang hoạt động. Số liệu outbox/heap/uptime là tại heartbeat cuối, không phải giá trị liên tục. Lỗi storage không ngăn gửi heartbeat, nhưng firmware chưa khởi tạo được identity hoặc worker thì không thể gửi.
+- Mỗi thiết bị chạy liên tục tạo khoảng 1.440 heartbeat/ngày trước jitter, tương ứng số request và tối đa số lần cập nhật document, cộng các reads xác thực. Mỗi dashboard đang mở có thể phát sinh reads khi telemetry thay đổi; không ghi mỗi giây.
+
+Thứ tự đưa vào dùng: **deploy web trước → nạp firmware mới sau**. Không cần thêm biến môi trường Vercel, không đổi Firestore Rules hoặc partition, không cần format outbox. Sau đó xem log `NET: heartbeat accepted.` và trang Thiết bị. Bản firmware cũ vẫn gửi cảnh báo như trước.
+
+Kiểm tra local: `npm run test:presence`, `npm run test:alerts` (Firestore emulator/Java 21+) và `npm run build`. Các kiểm thử tự động không gửi heartbeat lên Firebase thật.
+
 ## Trang giới thiệu
 
 Trang chủ `/` giới thiệu OTT-IDS; đăng nhập và dashboard cảnh báo nằm tại `/dashboard`.

@@ -39,7 +39,7 @@ export function validateAlert(body, deviceId) {
   return alert;
 }
 
-function authenticated(record, key) {
+export function authenticated(record, key) {
   if (!record || typeof record.keyHash !== 'string' || !/^[a-f0-9]{64}$/.test(record.keyHash)) return false;
   return timingSafeEqual(Buffer.from(record.keyHash, 'hex'), Buffer.from(hashKey(key), 'hex'));
 }

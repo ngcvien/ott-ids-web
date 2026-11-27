@@ -3,6 +3,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 import { collection, doc, limit, onSnapshot, orderBy, query, type Timestamp } from 'firebase/firestore';
+import Link from 'next/link';
+import { DeviceFleet, type DeviceSummary } from '@/components/device-fleet';
 import { firebaseClient } from '@/lib/firebase';
 import { createAttackDetector } from '@/lib/attack-detector.mjs';
 
@@ -43,7 +45,7 @@ function dataError(code?: string) {
     : 'Không thể tải dữ liệu. Kiểm tra kết nối và cấu hình Firestore.';
 }
 
-export function AlertConsole() {
+export function AlertConsole({ view = 'alerts' }: { view?: 'alerts' | 'devices' }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [setupError, setSetupError] = useState('');
@@ -79,15 +81,15 @@ export function AlertConsole() {
   }
 
   return <div className={`shell ${user && !setupError ? 'signed-in' : 'signed-out'}`}>
-    {user && !setupError ? <aside className="sidebar"><Brand/><div className="nav-section-label">KHÔNG GIAN LÀM VIỆC</div><nav aria-label="Điều hướng chính"><a href="#overview" className="nav-link"><Icon name="grid"/>Tổng quan</a><a href="#alerts" className="nav-link active"><Icon name="activity"/>Cảnh báo an ninh<span className="nav-indicator"/></a></nav><div className="sidebar-note"><Icon name="shield"/><strong>Giám sát tập trung</strong><p>Một không gian dành cho các thiết bị và cảnh báo của bạn.</p></div><div className="sidebar-account"><span className="avatar">{(user.email || 'OT').slice(0, 2).toUpperCase()}</span><div><strong>Tài khoản giám sát</strong><span title={user.email || ''}>{user.email}</span></div></div></aside> : null}
+    {user && !setupError ? <aside className="sidebar"><Brand/><div className="nav-section-label">KHÔNG GIAN LÀM VIỆC</div><nav aria-label="Điều hướng chính"><Link href="/dashboard" className={`nav-link ${view === 'alerts' ? 'active' : ''}`} aria-current={view === 'alerts' ? 'page' : undefined}><Icon name="activity"/>Cảnh báo</Link><Link href="/dashboard/devices" className={`nav-link ${view === 'devices' ? 'active' : ''}`} aria-current={view === 'devices' ? 'page' : undefined}><Icon name="devices"/>Thiết bị</Link></nav><div className="sidebar-note"><Icon name="shield"/><strong>Giám sát tập trung</strong><p>Một không gian dành cho các thiết bị và cảnh báo của bạn.</p></div><div className="sidebar-account"><span className="avatar">{(user.email || 'OT').slice(0, 2).toUpperCase()}</span><div><strong>Tài khoản giám sát</strong><span title={user.email || ''}>{user.email}</span></div></div></aside> : null}
     <header className="topbar">
-      {user && !setupError ? <div className="breadcrumb">Không gian làm việc<span>/</span><strong>Cảnh báo an ninh</strong></div> : <Brand/>}
+      {user && !setupError ? <div className="breadcrumb">Không gian làm việc<span>/</span><strong>{view === 'devices' ? 'Thiết bị' : 'Cảnh báo an ninh'}</strong></div> : <Brand/>}
       <span className="header-label"><Icon name="lock"/>{user ? 'Quyền truy cập được kiểm soát' : 'TRUNG TÂM GIÁM SÁT AN NINH'}</span>
       {user ? <button className="secondary logout-button" onClick={logout}><Icon name="logout"/><span>Đăng xuất</span></button> : <span className="header-version">OTT-IDS Console</span>}
     </header>
     {!ready ? <main className="login"><p role="status">Đang kiểm tra phiên đăng nhập…</p></main> : setupError ?
       <main className="login"><div className="card"><p className="eyebrow">CẤU HÌNH KẾT NỐI</p><h1>Chưa thể kết nối</h1><p role="alert" className="error">{setupError}</p></div></main> : user ?
-      <><Workspace key={user.uid} user={user} />{authError ? <p className="error notice" role="alert">{authError}</p> : null}</> :
+      <><Workspace key={user.uid} user={user} view={view} />{authError ? <p className="error notice" role="alert">{authError}</p> : null}</> :
       <main className="login">
         <section className="intro"><div className="platform-label"><span/>NỀN TẢNG GIÁM SÁT OTT-IDS</div><h1>Hiểu rõ mạng của bạn.<br/><span>Chủ động trước<br className="desktop-break"/> mọi cảnh báo.</span></h1><p className="intro-description">Kết nối thiết bị, theo dõi sự kiện và nắm bắt những dấu hiệu bất thường — trong một không gian giám sát thống nhất.</p><NetworkIllustration/><div className="intro-features"><span><Icon name="check"/>Cảnh báo realtime</span><span><Icon name="check"/>Phân quyền thiết bị</span><span><Icon name="check"/>Lịch sử tập trung</span></div></section>
         <div className="login-form-column">
@@ -105,7 +107,7 @@ export function AlertConsole() {
   </div>;
 }
 
-function Workspace({ user }: { user: User }) {
+function Workspace({ user, view }: { user: User; view: 'alerts' | 'devices' }) {
   const [groups, setGroups] = useState<Choice[]>([]);
   const [selected, setSelected] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -114,23 +116,28 @@ function Workspace({ user }: { user: User }) {
     setGroups(snapshot.docs.map(doc => ({ id: doc.id, name: String(doc.data().name || doc.id).replace(/lastdance/gi, 'OTT-IDS') })));
     setLoaded(true); setError('');
   }, error => { setGroups([]); setError(dataError(error.code)); setLoaded(true); }), [user.uid]);
+  useEffect(() => { setSelected(new URLSearchParams(window.location.search).get('org') || ''); }, []);
   const orgId = groups.some(group => group.id === selected) ? selected : groups[0]?.id || '';
   return <main className="workspace" id="overview">
-    <div className="page-heading"><div><p className="eyebrow">SECURITY OPERATIONS</p><h1>Trung tâm cảnh báo<span className="heading-dot">.</span></h1><p className="muted">Theo dõi và phân tích các sự kiện an ninh từ thiết bị của bạn.</p></div><label className="picker">Không gian giám sát<select value={orgId} onChange={event => setSelected(event.target.value)} disabled={!groups.length}>{groups.length ? groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>) : <option value="">Chưa có nhóm</option>}</select></label></div>
+    <div className="page-heading"><div><p className="eyebrow">SECURITY OPERATIONS</p><h1>{view === 'devices' ? 'Quản lý thiết bị' : 'Trung tâm cảnh báo'}<span className="heading-dot">.</span></h1><p className="muted">{view === 'devices' ? 'Theo dõi kết nối và tình trạng gửi dữ liệu của ESP32.' : 'Theo dõi và phân tích các sự kiện an ninh từ thiết bị của bạn.'}</p></div><label className="picker">Không gian giám sát<select value={orgId} onChange={event => setSelected(event.target.value)} disabled={!groups.length}>{groups.length ? groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>) : <option value="">Chưa có nhóm</option>}</select></label></div>
     {error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p role="status">Đang tải quyền truy cập…</p> : !orgId ?
-      <div className="empty standalone"><Icon name="devices"/><h2>Chưa có thiết bị được cấp quyền</h2><p>Nhờ quản trị viên thêm tài khoản của bạn vào nhóm thiết bị.</p></div> : <DeviceWorkspace key={orgId} orgId={orgId} user={user} />}
+      <div className="empty standalone"><Icon name="devices"/><h2>Chưa có thiết bị được cấp quyền</h2><p>Nhờ quản trị viên thêm tài khoản của bạn vào nhóm thiết bị.</p></div> : <DeviceWorkspace key={orgId} orgId={orgId} user={user} view={view} />}
   </main>;
 }
 
-function DeviceWorkspace({ orgId, user }: { orgId: string; user: User }) {
-  const [devices, setDevices] = useState<Choice[]>([]);
+function DeviceWorkspace({ orgId, user, view }: { orgId: string; user: User; view: 'alerts' | 'devices' }) {
+  const [devices, setDevices] = useState<DeviceSummary[]>([]);
+  const [cached, setCached] = useState(true);
   const [selected, setSelected] = useState('');
+  useEffect(() => { setSelected(new URLSearchParams(window.location.search).get('device') || ''); }, []);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => onSnapshot(collection(firebaseClient().db, 'organizations', orgId, 'devices'), snapshot => {
-    setDevices(snapshot.docs.map(doc => ({ id: doc.id, name: String(doc.data().name || doc.id) })));
+  useEffect(() => onSnapshot(collection(firebaseClient().db, 'organizations', orgId, 'devices'), { includeMetadataChanges: true }, snapshot => {
+    setDevices(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, name: String(doc.data().name || doc.id) } as DeviceSummary)));
+    setCached(snapshot.metadata.fromCache);
     setLoaded(true); setError('');
   }, error => { setDevices([]); setError(dataError(error.code)); setLoaded(true); }), [orgId]);
+  if (view === 'devices') return error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p role="status">Đang tải thiết bị…</p> : <DeviceFleet orgId={orgId} devices={devices} cached={cached} />;
   const deviceId = devices.some(device => device.id === selected) ? selected : devices[0]?.id || '';
   return <>
     <div className="toolbar"><div className="toolbar-title"><span className="toolbar-icon"><Icon name="devices"/></span><div><strong>Nguồn cảnh báo</strong><span>{devices.length} thiết bị được cấp quyền trong nhóm</span></div></div><label className="picker device-picker"><span className="sr-only">Thiết bị</span><select value={deviceId} onChange={event => setSelected(event.target.value)} disabled={!devices.length}>{devices.length ? devices.map(device => <option key={device.id} value={device.id}>{device.name} · {device.id}</option>) : <option value="">Chưa có thiết bị</option>}</select></label></div>

@@ -51,6 +51,9 @@ test('even an owner cannot forge alerts, grant access, or read credentials', asy
   await assertFails(setDoc(doc(db, 'organizations/org-b/members/alice'), { role: 'owner' }));
   await assertFails(setDoc(doc(db, 'users/alice/memberships/org-b'), { role: 'owner' }));
   await assertFails(getDoc(doc(db, 'deviceCredentials/IDS-0001')));
+  await assertFails(updateDoc(doc(db, 'organizations/org-a/devices/IDS-0001'), {
+    last_heartbeat_at: Timestamp.now(), heartbeat: { firmware_version: 'forged' },
+  }));
 });
 test('removing authoritative membership revokes access despite stale discovery data', async () => {
   await env.withSecurityRulesDisabled(async context => {
