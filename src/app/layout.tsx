@@ -5,6 +5,7 @@ import '@fontsource/be-vietnam-pro/600.css';
 import '@fontsource/be-vietnam-pro/700.css';
 import './globals.css';
 import './devices.css';
+import './models.css';
 
 export const metadata: Metadata = {
   title: 'OTT-IDS · Trung tâm giám sát an ninh',

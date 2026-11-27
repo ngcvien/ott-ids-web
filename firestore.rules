@@ -19,10 +19,20 @@ service cloud.firestore {
         allow get: if signedIn() && request.auth.uid == uid;
         allow list, write: if false;
       }
+      match /models/{modelId} {
+        allow get: if member(orgId);
+        allow list: if member(orgId) && request.query.limit != null && request.query.limit <= 100;
+        allow write: if false;
+      }
       match /devices/{deviceId} {
         allow read: if member(orgId);
         allow write: if false;
         match /alerts/{alertId} {
+          allow get: if member(orgId);
+          allow list: if member(orgId) && request.query.limit != null && request.query.limit <= 100;
+          allow write: if false;
+        }
+        match /modelCommands/{commandId} {
           allow get: if member(orgId);
           allow list: if member(orgId) && request.query.limit != null && request.query.limit <= 100;
           allow write: if false;

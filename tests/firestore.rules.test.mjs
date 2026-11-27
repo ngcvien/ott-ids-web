@@ -17,6 +17,9 @@ before(async () => {
       await setDoc(doc(db, `organizations/${org}/devices/IDS-0001/alerts/event-1`), { class_id: 1, received_at: Timestamp.now() });
     }
     await setDoc(doc(db, 'deviceCredentials/IDS-0001'), { keyHash: 'never-public' });
+    await setDoc(doc(db, 'organizations/org-a/models/example-model'), { name: 'Model' });
+    await setDoc(doc(db, 'organizations/org-a/devices/IDS-0001/modelCommands/example-job'), { status: 'queued' });
+    await setDoc(doc(db, 'organizations/org-a/members/model-viewer'), { role: 'viewer' });
   });
 });
 after(async () => { await env?.cleanup(); });
@@ -54,6 +57,20 @@ test('even an owner cannot forge alerts, grant access, or read credentials', asy
   await assertFails(updateDoc(doc(db, 'organizations/org-a/devices/IDS-0001'), {
     last_heartbeat_at: Timestamp.now(), heartbeat: { firmware_version: 'forged' },
   }));
+});
+test('models and commands are tenant scoped read-only for members, and version registry is server-only', async () => {
+  const model = 'organizations/org-a/models/example-model', command = 'organizations/org-a/devices/IDS-0001/modelCommands/example-job';
+  for (const uid of ['alice', 'model-viewer']) {
+    const db = env.authenticatedContext(uid).firestore();
+    await assertSucceeds(getDoc(doc(db, model))); await assertSucceeds(getDoc(doc(db, command)));
+    await assertSucceeds(getDocs(query(collection(db, 'organizations/org-a/models'), limit(20))));
+    await assertSucceeds(getDocs(query(collection(db, 'organizations/org-a/devices/IDS-0001/modelCommands'), limit(20))));
+    await assertFails(setDoc(doc(db, model), { forged: true })); await assertFails(updateDoc(doc(db, command), { status: 'succeeded' }));
+    await assertFails(getDoc(doc(db, 'organizations/org-a/modelVersions/1')));
+  }
+  for (const db of [env.authenticatedContext('bob').firestore(), env.unauthenticatedContext().firestore()]) {
+    await assertFails(getDoc(doc(db, model))); await assertFails(getDoc(doc(db, command)));
+  }
 });
 test('removing authoritative membership revokes access despite stale discovery data', async () => {
   await env.withSecurityRulesDisabled(async context => {

@@ -6,10 +6,12 @@ import type { Timestamp } from 'firebase/firestore';
 import { devicePresence } from '@/lib/device-presence.mjs';
 
 export type DeviceSummary = {
+  model_update?: { command_id: string; name: string; version: number; status: string; error?: string };
   id: string; name: string; last_heartbeat_at?: Timestamp;
   heartbeat?: { firmware_version: string; uptime_ms: number; wifi_rssi_dbm: number;
     free_heap_bytes: number; outbox_pending: number; outbox_rejected: number;
-    outbox_capacity: number; storage_ready: boolean };
+    outbox_capacity: number; storage_ready: boolean;
+    fpga?: { spi_ready: boolean; model_valid: boolean; active_version: number; run_enabled: boolean; protocol_error: number; load_error: number } };
 };
 const statusLabels = { online: 'Online', delayed: 'Chậm heartbeat', offline: 'Offline', unknown: 'Chưa có heartbeat', unverified: 'Chưa xác minh' };
 

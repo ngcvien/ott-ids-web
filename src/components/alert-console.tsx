@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { AlertDetails } from '@/components/alert-details';
 import type { AlertRecord } from '@/lib/alert-types';
 import { DeviceFleet, type DeviceSummary } from '@/components/device-fleet';
+import { ModelManager } from '@/components/model-manager';
 import { firebaseClient } from '@/lib/firebase';
 import { createAttackDetector } from '@/lib/attack-detector.mjs';
 
@@ -135,7 +136,7 @@ function DeviceWorkspace({ orgId, user, view }: { orgId: string; user: User; vie
     setCached(snapshot.metadata.fromCache);
     setLoaded(true); setError('');
   }, error => { setDevices([]); setError(dataError(error.code)); setLoaded(true); }), [orgId]);
-  if (view === 'devices') return error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p role="status">Đang tải thiết bị…</p> : <DeviceFleet orgId={orgId} devices={devices} cached={cached} />;
+  if (view === 'devices') return error ? <p role="alert" className="error notice">{error}</p> : !loaded ? <p role="status">Đang tải thiết bị…</p> : <><ModelManager orgId={orgId} user={user} devices={devices} cached={cached}/><DeviceFleet orgId={orgId} devices={devices} cached={cached} /></>;
   const deviceId = devices.some(device => device.id === selected) ? selected : devices[0]?.id || '';
   return <>
     <div className="toolbar"><div className="toolbar-title"><span className="toolbar-icon"><Icon name="devices"/></span><div><strong>Nguồn cảnh báo</strong><span>{devices.length} thiết bị được cấp quyền trong nhóm</span></div></div><label className="picker device-picker"><span className="sr-only">Thiết bị</span><select value={deviceId} onChange={event => setSelected(event.target.value)} disabled={!devices.length}>{devices.length ? devices.map(device => <option key={device.id} value={device.id}>{device.name} · {device.id}</option>) : <option value="">Chưa có thiết bị</option>}</select></label></div>

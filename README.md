@@ -1,5 +1,11 @@
 # OTT-IDS Alerts
 
+## Nạp model FPGA từ xa
+
+Đã có upload model ABI 1, kiểm tra CRC/SHA, phát lệnh theo thiết bị và lịch sử kết quả
+trong trang **Thiết bị**. Xem [hướng dẫn triển khai, đóng gói và khôi phục model](MODEL_DEPLOYMENT_VI.md).
+Cần deploy web + Firestore Rules mới, rồi nạp firmware ESP `ott-ids-1.2.0`.
+
 ## Chi tiết cảnh báo
 
 Bấm một dòng trên dashboard để mở inspector (bàn phím: Tab đến dòng, Enter hoặc Space). Desktop hiển thị
