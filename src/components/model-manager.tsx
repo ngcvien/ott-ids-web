@@ -44,6 +44,7 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
   const [owner, setOwner] = useState(false);
   const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [memVersion, setMemVersion] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -64,10 +65,19 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
     event.preventDefault(); if (!file || disabled) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      if (file.size > 12000) throw new Error('Gói model quá lớn. ABI 1 chỉ hỗ trợ tối đa 127 node; dùng file JSON do model:pack tạo.');
-      let parsed;
-      try { parsed = JSON.parse(await file.text()); } catch { throw new Error('File không phải JSON hợp lệ.'); }
-      const result = await modelRequest(user, '/api/models', { orgId, name, model: parsed });
+      if (file.size > 12000) throw new Error('File quá lớn. ABI 1 hỗ trợ tối đa 127 node.');
+      const text = await file.text();
+      let body;
+      if (file.name.toLowerCase().endsWith('.mem')) {
+        const value = memVersion.trim();
+        if (!/^(?:0[xX][0-9a-fA-F]{1,8}|[0-9]{1,10})$/.test(value) || Number(value) > 0xffffffff) throw new Error('Nhập version uint32 hợp lệ, ví dụ 0x02000002 hoặc 33554434.');
+        body = { orgId, name, mem: text, version: Number(value) };
+      } else if (file.name.toLowerCase().endsWith('.json')) {
+        let parsed;
+        try { parsed = JSON.parse(text); } catch { throw new Error('File không phải JSON hợp lệ.'); }
+        body = { orgId, name, model: parsed };
+      } else throw new Error('Chọn file .mem hoặc .json.');
+      const result = await modelRequest(user, '/api/models', body);
       setSelectedModel(result.model_id);
       setMessage(result.duplicate ? 'Phiên bản này đã tồn tại. Chọn thiết bị để phát lệnh nạp.' : 'Đã kiểm tra và lưu phiên bản model. Chưa gửi lệnh nạp đến thiết bị.');
     } catch (error) { setError(error instanceof Error ? error.message : 'Không tải được model.'); }
@@ -99,9 +109,9 @@ export function ModelManager({ orgId, user, devices, cached }: { orgId: string; 
   }
 
   return <section className="model-panel" aria-labelledby="model-panel-title"><div className="panel-heading"><div><p className="eyebrow">MODEL DEPLOYMENT</p><h2 id="model-panel-title">Nạp model vào FPGA</h2></div><span className="device-chip">ABI 1 · 1–127 node</span></div>
-    <p className="model-intro">Tải gói model JSON, chọn phiên bản và thiết bị để nạp qua ESP32. CRC32 và SHA-256 được kiểm tra tại server và ESP. Chỉ báo thành công sau khi FPGA xác nhận version hợp lệ; RUN_ENABLE được giữ thấp.</p>
-    {!owner ? <p className="model-note">Bạn đang có quyền xem. Chỉ owner được tải model, phát lệnh và hủy lệnh.</p> : <form className="model-upload" onSubmit={upload}><label>Tên model<input value={name} maxLength={80} required onChange={event => setName(event.target.value)} placeholder="Ví dụ: Gateway24 Model2" disabled={disabled}/></label><label>Gói model (.json)<input type="file" accept=".json,application/json" required disabled={disabled} onChange={event => { const next = event.target.files?.[0] || null; setFile(next); if (!name && next) setName(next.name.replace(/\.json$/i,'').slice(0,80)); }}/></label><button type="submit" disabled={disabled || !file || !name.trim()}>{busy ? 'Đang xử lý…' : 'Kiểm tra và lưu model'}</button></form>}
-    <p className="model-note">Dùng <code>npm run model:pack</code> để đóng gói ROM .mem hoặc header sinh sẵn. <a href="/models/gateway24-model2.json" download>Tải gói mẫu Gateway24 Model2</a>. Gói mẫu có cùng nội dung model mặc định; tải file không tự phát lệnh nạp.</p>
+    <p className="model-intro">Tải file ROM .mem hoặc gói JSON, chọn phiên bản và thiết bị để nạp qua ESP32. CRC32 và SHA-256 được kiểm tra tại server và ESP. Chỉ báo thành công sau khi FPGA xác nhận version hợp lệ; RUN_ENABLE được giữ thấp.</p>
+    {!owner ? <p className="model-note">Bạn đang có quyền xem. Chỉ owner được tải model, phát lệnh và hủy lệnh.</p> : <form className="model-upload" onSubmit={upload}><label>Tên model<input value={name} maxLength={80} required onChange={event => setName(event.target.value)} placeholder="Ví dụ: Gateway24 Model2" disabled={disabled}/></label><label>File model (.mem / .json)<input type="file" accept=".mem,.json,application/json,text/plain" required disabled={disabled} onChange={event => { const next = event.target.files?.[0] || null; setFile(next); if (!name && next) setName(next.name.replace(/\.(?:mem|json)$/i,'').slice(0,80)); }}/></label>{file?.name.toLowerCase().endsWith('.mem') ? <label>Version · ABI 1<input type="text" value={memVersion} onChange={event => setMemVersion(event.target.value)} placeholder="0x02000002 hoặc 33554434" maxLength={10} required disabled={disabled} autoComplete="off"/></label> : null}<button type="submit" disabled={disabled || !file || !name.trim()}>{busy ? 'Đang xử lý…' : 'Kiểm tra và lưu model'}</button></form>}
+    <p className="model-note">File .mem: một word hex 16 ký tự mỗi dòng, tối đa 127 node. Nhập version mới nếu nội dung model thay đổi. Server tự tính CRC32 và SHA-256; không cần chuyển file trước. JSON đã đóng gói vẫn được hỗ trợ. <a href="/models/gateway24-model2.json" download>Tải gói mẫu Gateway24 Model2</a>. Gói mẫu có cùng nội dung model mặc định; tải file không tự phát lệnh nạp.</p>
     <div className="model-selectors"><label>Phiên bản model<select value={model?.id || ''} disabled={busy || !models.length} onChange={event => setSelectedModel(event.target.value)}>{models.length ? models.map(item => <option key={item.id} value={item.id}>{item.name} · v{item.model.version}</option>) : <option value="">Chưa có model</option>}</select></label><label>Thiết bị nhận<select value={device?.id || ''} disabled={busy || !devices.length} onChange={event => setSelectedDevice(event.target.value)}>{devices.length ? devices.map(item => <option key={item.id} value={item.id}>{item.name} · {item.id}</option>) : <option value="">Chưa có thiết bị</option>}</select></label></div>
     {model ? <div className="model-metadata"><span>ABI <b>{model.model.abi}</b> · Nodes <b>{model.model.node_count}</b> · CRC32 <code>{model.model.crc32}</code></span><span>SHA-256 <code>{model.model.sha256}</code></span></div> : null}
     {device?.heartbeat?.firmware_version !== 'ott-ids-1.2.0' ? <p className="model-note">Cần nạp firmware ESP có hỗ trợ model từ xa (ott-ids-1.2.0). Firmware cũ không thực thi lệnh này.</p> : null}

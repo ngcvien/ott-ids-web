@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { hashKey } from '../src/server/alerts.mjs';
-import { packModel, validateModel, modelIdFor } from '../src/server/model-format.mjs';
+import { packModel, parseMemModel, validateModel, modelIdFor } from '../src/server/model-format.mjs';
 import { uploadModel, manageModelCommand, downloadDeviceModel, reportModelResult, modelAdminHttp, modelDeviceHttp, validateModelResult } from '../src/server/models.mjs';
 import { saveHeartbeat, validateHeartbeat } from '../src/server/heartbeat.mjs';
 
@@ -47,6 +47,23 @@ test('schema rejects incompatible ABI, corrupt checksums, unsafe words, count an
     assert.throws(() => validateModel({ ...model, ...change }), statusError(422));
   }
   assert.equal(validateModel(packModel(Array(127).fill('00000003fffffc10'), 0xffffffff)).node_count, 127);
+});
+test('MEM parser preserves 64-bit words and produces the same package with BOM/CRLF/comments', () => {
+  const text = '\ufeffFFFFFFFFFFFFFFFF\r\n\r\n// comment\r\n0000000000000000 // comment\r\n';
+  assert.deepEqual(parseMemModel(text, 33554434), packModel(['ffffffffffffffff', '0000000000000000'], 33554434));
+  for (const invalid of ['', '// only comments', '@0000\n00000003fffffc10', '0x00000003fffffc10', 'fffffffffffffffg', '1234', Array(128).fill('00000003fffffc10').join('\n')]) assert.throws(() => parseMemModel(invalid, 1), statusError(422));
+  for (const version of [undefined, '0x02000002', -1, 4294967296]) assert.throws(() => parseMemModel('00000003fffffc10', version), statusError(422));
+});
+test('owner can upload MEM; JSON/MEM deduplicate identically and permissions remain enforced', async () => {
+  const f = await fixture();
+  const input = { orgId: f.orgId, name: 'Raw MEM', mem: f.model.words.join('\n'), version: f.model.version };
+  assert.equal((await uploadModel(db, 'model-owner', input)).model_id, f.modelId);
+  assert.equal((await uploadModel(db, 'model-owner', input)).duplicate, true);
+  await assert.rejects(uploadModel(db, 'model-viewer', input), statusError(403));
+  const added = await uploadModel(db, 'model-owner', { ...input, version: f.model.version + 1 });
+  assert.deepEqual((await db.doc(`organizations/${f.orgId}/models/${added.model_id}`).get()).data().model, packModel(f.model.words, f.model.version + 1));
+  await assert.rejects(uploadModel(db, 'model-owner', { ...input, model: f.model }), statusError(422));
+  await assert.rejects(uploadModel(db, 'model-owner', { orgId: f.orgId, name: 'Bad', model: f.model, version: 2 }), statusError(422));
 });
 test('only the owner can upload; packages are immutable and one version cannot point at different words', async () => {
   const f = await fixture(), input = { orgId: f.orgId, name: 'Changed name', model: f.model };

@@ -1,5 +1,16 @@
 # Nạp model từ web vào FPGA
 
+## Upload trực tiếp .mem
+
+Đăng nhập owner → Thiết bị → Nạp model vào FPGA. Chọn file `.mem`, nhập tên và
+**Version · ABI 1** (ví dụ `0x02000002` hoặc `33554434`), bấm **Kiểm tra và lưu model**.
+Server đọc mỗi dòng một word hex 16 ký tự (1–127 node), tự tính CRC32/SHA-256 và
+đóng gói nội bộ; không cần chuyển file bằng terminal. Hỗ trợ dòng trống, BOM, CRLF
+và comment `//`; không nhận address directive `@...` hoặc word sai độ dài.
+Sau đó chọn thiết bị và bấm **Nạp model vào thiết bị**. Upload không tự nạp FPGA.
+JSON đóng gói vẫn được hỗ trợ và dùng version trong file. Hai cách có cùng quy tắc
+phân quyền và ràng buộc version: cùng nội dung/version là trùng; khác nội dung phải đổi version.
+
 ## Đưa vào sử dụng
 
 1. Trong `web`, commit/push bản web mới để Vercel deploy. Không đổi Firebase env hoặc device key.

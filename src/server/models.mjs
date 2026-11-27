@@ -1,6 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { ApiError, authenticated, readBody, validId } from './alerts.mjs';
-import { modelIdFor, validateModel } from './model-format.mjs';
+import { modelIdFor, parseMemModel, validateModel } from './model-format.mjs';
 
 const ACTIVE = ['queued', 'downloading', 'loading'];
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -18,9 +18,11 @@ async function requireOwner(transaction, db, orgId, uid) {
   }
 }
 export async function uploadModel(db, uid, input) {
-  requireInput(input, ['orgId', 'name', 'model']);
+  requireInput(input, ['orgId', 'name', 'model', 'mem', 'version']);
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 80) throw new ApiError(422, 'invalid_request', 'Model name required (1–80 characters)');
-  const model = validateModel(input.model), id = modelIdFor(model);
+  if ((input.mem !== undefined && input.model !== undefined) || (input.mem === undefined && input.version !== undefined)) throw new ApiError(422, 'invalid_request', 'Supply either MEM with version or a JSON model');
+  const model = input.mem !== undefined ? parseMemModel(input.mem, input.version) : validateModel(input.model);
+  const id = modelIdFor(model);
   return db.runTransaction(async transaction => {
     await requireOwner(transaction, db, input.orgId, uid);
     const ref = db.doc(`organizations/${input.orgId}/models/${id}`);

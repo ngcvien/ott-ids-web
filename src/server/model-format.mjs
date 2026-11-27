@@ -3,6 +3,14 @@ import { ApiError } from './alerts.mjs';
 
 export const MODEL_ABI = 1;
 export const MAX_MODEL_NODES = 127;
+export function parseMemModel(text, version) {
+  const invalid = detail => { throw new ApiError(422, 'invalid_model', detail); };
+  if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > 12000 ||
+      !Number.isSafeInteger(version) || version < 0 || version > 0xffffffff) invalid('MEM text and uint32 version required');
+  const words = text.replace(/^\uFEFF/, '').split(/\r?\n/).map(line => line.replace(/\/\/.*$/, '').trim()).filter(Boolean);
+  if (!words.length || words.length > MAX_MODEL_NODES || words.some(word => !/^[a-fA-F0-9]{16}$/.test(word))) invalid('MEM must contain 1–127 lines, one 16-digit hexadecimal word per line');
+  return validateModel(packModel(words, version));
+}
 export function crc32(bytes) {
   let crc = 0xffffffff;
   for (const byte of bytes) {
