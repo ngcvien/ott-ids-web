@@ -1,5 +1,13 @@
 # OTT-IDS Alerts
 
+## Trang giới thiệu
+
+Trang chủ `/` giới thiệu OTT-IDS; đăng nhập và dashboard cảnh báo nằm tại `/dashboard`.
+Trang giới thiệu dùng GSAP ScrollTrigger cho hiệu ứng xuất hiện, parallax và luồng kết nối theo cuộn.
+GSAP chỉ tải trên trang giới thiệu, có cleanup khi rời trang và tôn trọng `prefers-reduced-motion`.
+Bố cục chuyển sang một cột trên điện thoại, có menu thu gọn và không khóa cuộn.
+Các số liệu trong phần xem trước dashboard được ghi rõ là minh họa, không đọc hay tạo cảnh báo Firebase.
+
 ## Hiển thị tấn công và xóa cảnh báo
 
 - `class_id: 1` hiển thị **Tấn công · Class 1** màu đỏ, tô nhẹ hàng dữ liệu và được đếm trong ô thống kê tấn công.
