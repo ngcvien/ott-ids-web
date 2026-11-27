@@ -20,6 +20,7 @@
     "test:runtime": "node --no-experimental-require-module --test tests/firebase-runtime.test.mjs",
     "prebuild": "npm run test:runtime",
     "test:details": "node --test tests/alert-details.test.mjs",
+    "test:charts": "node --test tests/alert-analytics.test.mjs",
     "test:all": "firebase emulators:exec --project demo-lastdance --only firestore \"node --no-experimental-require-module --test tests/*.test.mjs\"",
     "model:pack": "node scripts/pack-model.mjs",
     "test:models": "firebase emulators:exec --project demo-lastdance --only firestore \"node --test tests/models.test.mjs tests/firestore.rules.test.mjs tests/heartbeat.test.mjs\""

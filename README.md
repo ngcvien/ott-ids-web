@@ -1,5 +1,20 @@
 # OTT-IDS Alerts
 
+## Biểu đồ dashboard
+
+Mục **Góc nhìn cảnh báo** gồm diễn biến tổng/Class 1 theo 12 khoảng, tỷ lệ phân loại
+và phân bố giao thức. Dùng cùng listener tối đa 100 cảnh báo mới nhất của thiết bị
+đang chọn, không tạo dữ liệu mẫu hoặc thêm truy vấn Firestore. Chọn toàn bộ mẫu,
+15 phút, 1 giờ hoặc 24 giờ; các cửa sổ gần nhất tính lại mỗi 30 giây theo đồng hồ máy xem web.
+Thống kê theo `received_at` của server, không theo timestamp bộ đếm phần cứng.
+
+Đây là thống kê mẫu cảnh báo đã tải, không phải lịch sử đầy đủ, lượng packet hoặc
+băng thông mạng. Khi đạt 100 bản ghi sẽ có nhãn giới hạn; mốc trống không chứng minh
+mạng không có tấn công. Class khác không tự được gán là lưu lượng bình thường.
+Class 1 và hành động Drop được đếm riêng. Bộ lọc tìm kiếm của bảng không áp dụng cho biểu đồ.
+Có trạng thái trống/cache/lỗi, thanh kéo mốc thời gian hỗ trợ điện thoại/bàn phím,
+và bảng số liệu có thể mở để đọc từng khoảng. Kiểm tra `npm run test:charts` và `npm run build`.
+
 ## Thuật ngữ giao diện
 
 Web dùng **lõi xử lý IDS / lõi IDS** để giới thiệu định hướng vi mạch của dự án.
